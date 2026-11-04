@@ -1,0 +1,73 @@
+# The tenant's own gateway: routes that tenant's interactive sessions and
+# running apps, at https://<tenant>.<sessions host> (and *.<that>), with the
+# key the tenant's Job minted (Secret app-gateway). It must run in the same
+# namespace as the tenant's orchestrator: it discovers task pods in its own
+# namespace. One gateway per tenant.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: TENANT-gateway
+  namespace: klique
+spec:
+  releaseName: klique-gateway
+  targetNamespace: TENANT
+  storageNamespace: TENANT
+  interval: 10m
+  timeout: 20m
+
+  chart:
+    spec:
+      chart: gateway
+      # Tracks the newest 1.x the registry serves — a publish upgrades every
+      # tenant's release within ~40 minutes, no commit. Pin an exact version to
+      # hold them.
+      version: "1.x.x"
+      sourceRef:
+        kind: HelmRepository
+        name: klique
+      interval: 30m
+
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+
+  # Later wins. Maps merge; lists are replaced whole.
+  valuesFrom:
+    # 1. Cluster facts: apiserver URL, ingress class and annotations, the CA.
+    - kind: ConfigMap
+      name: klique-platform
+      valuesKey: gateway.yaml
+    # 2. Shared functional values from git (../klique/values/gateway.yaml).
+    - kind: ConfigMap
+      name: klique-values-gateway
+      valuesKey: values.yaml
+    # 3. Partner overrides from tfvars (klique_values.gateway).
+    - kind: ConfigMap
+      name: klique-platform
+      valuesKey: gateway-overrides.yaml
+      optional: true
+    # 4. This tenant's own gateway-values.yaml, if its folder lists one.
+    - kind: ConfigMap
+      name: tenant-config
+      valuesKey: gateway-values.yaml
+      optional: true
+
+  # The tenant's identity, merged LAST (after every valuesFrom entry), so no
+  # values file can move one tenant's gateway onto another's host.
+  values:
+    # Empty on purpose: the chart then derives https://<ingress.hostName>.
+    # (A replacement cannot build "https://<tenant>.…" — it has no concat.)
+    externalURL: ""
+    ingress:
+      # <tenant>.<sessions host>; the first label is replaced with the tenant
+      # name, the variable comes from klique-platform-vars.
+      hostName: TENANT.${KLIQUE_SESSIONS_HOST}
+      # From ./certificate-gateway.yaml.
+      tlsSecretName: TENANT-gateway-tls
+    # Raw-TCP sessions need a NodePort range per gateway, and every tenant's
+    # gateway would claim the same one.
+    streamSession:
+      enabled: false

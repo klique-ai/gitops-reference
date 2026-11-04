@@ -1,0 +1,147 @@
+{
+  "realm": "tenant-e2e",
+  "displayName": "kind e2e: tenant-e2e's own IdP",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "groups": [
+    { "name": "e2e-admins" },
+    { "name": "e2e-builders" }
+  ],
+  "users": [
+    {
+      "username": "e2e-admin",
+      "enabled": true,
+      "email": "e2e-admin@example.com",
+      "emailVerified": true,
+      "firstName": "E2E",
+      "lastName": "Admin",
+      "groups": ["/e2e-admins"],
+      "credentials": [
+        { "type": "password", "value": "${E2E_PW_TENANT_E2E_ADMIN}", "temporary": false }
+      ]
+    },
+    {
+      "username": "e2e-builder",
+      "enabled": true,
+      "email": "e2e-builder@example.com",
+      "emailVerified": true,
+      "firstName": "E2E",
+      "lastName": "Builder",
+      "groups": ["/e2e-builders"],
+      "credentials": [
+        { "type": "password", "value": "${E2E_PW_TENANT_E2E_BUILDER}", "temporary": false }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "klique-tenant-e2e",
+      "name": "Klique tenant-e2e (OIDC)",
+      "protocol": "openid-connect",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${E2E_OIDC_SECRET_TENANT_E2E}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["https://app.${E2E_DOMAIN}/callback_klique-tenant-e2e"],
+      "attributes": {"post.logout.redirect.uris": "https://app.${E2E_DOMAIN}/login/tenant-e2e"},
+      "webOrigins": ["+"],
+      "protocolMappers": [
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "config": {
+            "claim.name": "tenant",
+            "claim.value": "tenant-e2e",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "klique-tenant-e2e-saml",
+      "name": "Klique tenant-e2e (SAML)",
+      "protocol": "saml",
+      "enabled": true,
+      "frontchannelLogout": false,
+      "redirectUris": ["https://app.${E2E_DOMAIN}/callback_saml"],
+      "attributes": {
+        "saml_assertion_consumer_url_post": "https://app.${E2E_DOMAIN}/callback_saml",
+        "saml.force.post.binding": "true",
+        "saml.server.signature": "true",
+        "saml.assertion.signature": "true",
+        "saml.signature.algorithm": "RSA_SHA256",
+        "saml.client.signature": "false",
+        "saml.encrypt": "false",
+        "saml.authnstatement": "true",
+        "saml_name_id_format": "username",
+        "saml.force.name.id.format": "true"
+      },
+      "protocolMappers": [
+        {
+          "name": "tenant",
+          "protocol": "saml",
+          "protocolMapper": "saml-hardcode-attribute-mapper",
+          "config": {
+            "attribute.name": "tenant",
+            "attribute.value": "tenant-e2e",
+            "attribute.nameformat": "Basic"
+          }
+        },
+        {
+          "name": "groups",
+          "protocol": "saml",
+          "protocolMapper": "saml-group-membership-mapper",
+          "config": {
+            "attribute.name": "groups",
+            "attribute.nameformat": "Basic",
+            "single": "false",
+            "full.path": "false"
+          }
+        },
+        {
+          "name": "emailaddress",
+          "protocol": "saml",
+          "protocolMapper": "saml-user-property-mapper",
+          "config": {
+            "user.attribute": "email",
+            "attribute.name": "emailaddress",
+            "attribute.nameformat": "Basic"
+          }
+        },
+        {
+          "name": "displayname",
+          "protocol": "saml",
+          "protocolMapper": "saml-user-property-mapper",
+          "config": {
+            "user.attribute": "username",
+            "attribute.name": "displayname",
+            "attribute.nameformat": "Basic"
+          }
+        }
+      ]
+    }
+  ]
+}

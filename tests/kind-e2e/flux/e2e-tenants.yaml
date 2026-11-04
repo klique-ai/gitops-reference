@@ -1,0 +1,38 @@
+# The e2e-only tenants (../tenants/), reconciled the way klique-fluxcd's
+# `tenants` Kustomization reconciles the real ones. Applied by e2e.sh, not by
+# Flux: it exists only on the kind cluster.
+#
+# postBuild.substituteFrom, in order:
+#   - klique-platform-vars: the cluster facts every tenant uses
+#     (${KLIQUE_DOMAIN}, the sessions host, the issuer), written by
+#     klique-terraform, exactly as for klique-fluxcd's `tenants`;
+#   - kind-e2e-vars: the one value that exists only in this test,
+#     ${KEYCLOAK_SAML_CERT_TENANT_E2E}, written by e2e.sh once Keycloak is up.
+# The two share no key.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: e2e-tenants
+  namespace: klique
+spec:
+  interval: 10m
+  path: ./tests/kind-e2e/tenants
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  # After the real tenants, so tenant-example is reconciled first and both
+  # sets of Jobs never race for the Platform Management server.
+  dependsOn:
+    - name: tenants
+  prune: true
+  force: true
+  wait: true
+  # Each tenant now brings an orchestrator and a gateway too.
+  timeout: 30m
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: klique-platform-vars
+      - kind: ConfigMap
+        name: kind-e2e-vars

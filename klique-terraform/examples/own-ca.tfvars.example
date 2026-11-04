@@ -1,0 +1,80 @@
+# A partner's own domain and their own CA.
+#
+# Before apply, create the CA keypair Secret yourself, so the private key
+# never enters Terraform state:
+#   kubectl create namespace cert-manager
+#   kubectl -n cert-manager create secret tls corp-root-ca \
+#     --cert=ca.crt --key=ca.key
+#
+# (An intermediate CA scoped to the Klique domain is better than the root.)
+
+kubeconfig_context = "prod-cluster"
+
+dns = {
+  mode        = "custom"
+  base_domain = "klique.corp.example" # app./api./files./sessions. under it
+}
+
+tls = {
+  mode           = "ca"
+  ca_secret_name = "corp-root-ca"
+  # The PUBLIC certificate only — Klique pods and task pods trust it.
+  ca_cert_pem = <<-PEM
+    -----BEGIN CERTIFICATE-----
+    ...
+    -----END CERTIFICATE-----
+  PEM
+}
+
+ingress = {
+  controller = "traefik"
+  # Two replicas, on dedicated ingress nodes.
+  replicas      = 2
+  node_selector = { "node-role.kubernetes.io/ingress" = "" }
+  tolerations   = [{ key = "dedicated", operator = "Equal", value = "ingress", effect = "NoSchedule" }]
+  # Cloud LB settings go here, e.g. an internal load balancer:
+  service_annotations = {
+    # "service.beta.kubernetes.io/aws-load-balancer-scheme" = "internal"
+  }
+}
+
+# AWS Secrets Manager with static credentials (prefer IRSA / Pod Identity:
+# then drop secret_store_credentials and the auth block).
+secret_store = {
+  provider_yaml = <<-YAML
+    aws:
+      service: SecretsManager
+      region: eu-west-1
+      auth:
+        secretRef:
+          accessKeyIDSecretRef:
+            name: klique-secret-store-credentials
+            key: access-key-id
+          secretAccessKeySecretRef:
+            name: klique-secret-store-credentials
+            key: secret-access-key
+  YAML
+}
+# Sensitive — pass via TF_VAR_secret_store_credentials or a gitignored
+# *.auto.tfvars, never a committed file:
+# secret_store_credentials = {
+#   access-key-id     = "..."
+#   secret-access-key = "..."
+# }
+
+# Klique sizing from tfvars: a bigger default queue on GPU nodes.
+klique_values = {
+  orchestrator = <<-YAML
+    orchestratork8sglue:
+      queues:
+        default:
+          queueSettings:
+            maxPods: 16
+          templateOverrides:
+            nodeSelector:
+              nvidia.com/gpu.present: "true"
+            resources:
+              requests: { cpu: "4", memory: 16Gi }
+              limits: { memory: 16Gi, nvidia.com/gpu: 1 }
+  YAML
+}

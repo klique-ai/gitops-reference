@@ -1,0 +1,80 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: control-plane
+  namespace: klique
+spec:
+  # The chart derives in-cluster Service names from <releaseName>-<chartName>.
+  # The tenant reconciler Jobs call two of them by name
+  # (klique-control-plane-apiserver, klique-control-plane-platform-management-server,
+  # in ../tenant-reconciler/job.yaml), and changing releaseName renames every
+  # object in the release — pick one and leave it.
+  releaseName: klique
+  interval: 10m
+  timeout: 30m
+
+  chart:
+    spec:
+      chart: control-plane
+      # Tracks the newest 1.x the registry serves: a publish upgrades this
+      # release within ~40 minutes, with no commit. Minor versions have
+      # renamed values keys before — watch the reconcile status after a
+      # publish, and pin an exact version to hold one. Check what exists:
+      #   crane ls index.docker.io/kliqueai/control-plane
+      version: "1.x.x"
+      sourceRef:
+        kind: HelmRepository
+        name: klique
+      interval: 30m
+
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      # One retry, and no rollback after the final failure: this chart owns
+      # MongoDB and Elasticsearch, and rolling it back mid-migration is worse
+      # than a stuck NotReady a human looks at.
+      retries: 1
+      remediateLastFailure: false
+
+  valuesFrom:
+    # 1. Cluster-specific keys (hostnames, IngressClass, TLS, CA trust) from
+    #    the klique-platform ConfigMap klique-terraform writes — not in git,
+    #    so it is read first and never collides with a git-owned key. Missing
+    #    ConfigMap = release NotReady, on purpose.
+    - kind: ConfigMap
+      name: klique-platform
+      valuesKey: control-plane.yaml
+
+    # 2. Functional configuration — values/control-plane.yaml, rendered into a
+    #    ConfigMap by kustomization.yaml.
+    - kind: ConfigMap
+      name: klique-values-control-plane
+      valuesKey: values.yaml
+
+    # 3. Partner overrides from tfvars (klique_values.control_plane), AFTER
+    #    the git values so tfvars win; optional, for installs without
+    #    klique-terraform.
+    - kind: ConfigMap
+      name: klique-platform
+      valuesKey: control-plane-overrides.yaml
+      optional: true
+
+    # 4. The apiserver's own credential pair, injected into single leaf keys.
+    #    Listed last so a credential always wins a collision with a values key.
+    #
+    #    THE ONE EXCEPTION to "credentials by reference": the chart renders its
+    #    own klique-conf Secret (this pair plus the keys it generates), so these
+    #    values land in the Helm release Secret either way.
+    #    controlPlane.existingSecret would avoid it, but it replaces klique-conf
+    #    WHOLE, so the backend would then have to hold every internal key the
+    #    chart otherwise generates.
+    - kind: Secret
+      name: klique-apiserver
+      valuesKey: key
+      targetPath: controlPlane.apiserverKey
+    - kind: Secret
+      name: klique-apiserver
+      valuesKey: secret
+      targetPath: controlPlane.apiserverSecret

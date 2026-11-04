@@ -1,0 +1,71 @@
+{
+  "realm": "tenant-e2e-b",
+  "displayName": "kind e2e: tenant-e2e-b's own IdP (another tenant)",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "groups": [
+    { "name": "e2e-b-admins" }
+  ],
+  "users": [
+    {
+      "username": "e2e-b-user",
+      "enabled": true,
+      "email": "e2e-b-user@example.com",
+      "emailVerified": true,
+      "firstName": "E2E",
+      "lastName": "Other Tenant",
+      "groups": ["/e2e-b-admins"],
+      "credentials": [
+        { "type": "password", "value": "${E2E_PW_TENANT_E2E_B_USER}", "temporary": false }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "klique-tenant-e2e-b",
+      "name": "Klique tenant-e2e-b (OIDC)",
+      "protocol": "openid-connect",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${E2E_OIDC_SECRET_TENANT_E2E_B}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["https://app.${E2E_DOMAIN}/callback_klique-tenant-e2e-b"],
+      "attributes": {"post.logout.redirect.uris": "https://app.${E2E_DOMAIN}/login/tenant-e2e-b"},
+      "webOrigins": ["+"],
+      "protocolMappers": [
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "config": {
+            "claim.name": "tenant",
+            "claim.value": "tenant-e2e-b",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

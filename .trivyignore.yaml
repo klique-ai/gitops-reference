@@ -1,0 +1,25 @@
+# Scoped exceptions to trivy's misconfiguration checks, passed by
+# scripts/check.sh with --ignorefile. Each entry names one rule, the files it
+# is waived for, and why. Do not add an entry without a path.
+misconfigurations:
+  - id: KSV-0041
+    paths:
+      - "klique-fluxcd/tenant-reconciler/rbac/clusterrole.yaml"
+    statement: >-
+      ClusterRole tenant-secret-writer is a rule set bound only by per-tenant
+      RoleBindings, never a ClusterRoleBinding; it grants create, and get/patch
+      on two named Secrets, in tenant namespaces only.
+  - id: KSV-0125
+    paths:
+      - "tests/kind-e2e/keycloak/keycloak.yaml"
+    statement: >-
+      Keycloak publishes only on quay.io, its own registry (the docker.io copy
+      is the same digest but not an official image, so trivy flags it too);
+      pinned by digest; used only by the kind e2e harness.
+  - id: KSV-0113
+    paths:
+      - "klique-fluxcd/klique/secretstore-tenants.yaml"
+    statement: >-
+      Role klique-dockerhub-reader grants only get, on the one Secret
+      klique-dockerhub (resourceNames): the pull secret ESO copies into tenant
+      namespaces.

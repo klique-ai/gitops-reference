@@ -1,0 +1,7 @@
+# Copy to backend.hcl (gitignored) and fill in; then:
+#   terraform init -backend-config=backend.hcl
+bucket       = "<state-bucket>"
+key          = "klique/klique-terraform.tfstate"
+region       = "<region>"
+encrypt      = true
+use_lockfile = true

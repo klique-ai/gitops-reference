@@ -1,0 +1,58 @@
+# A cluster that already runs an ingress controller, cert-manager and ESO,
+# with a corporate ClusterIssuer (Vault PKI, Venafi, AD CS, ...).
+# Terraform then installs nothing: it creates the namespace, the two
+# Certificates and the klique-platform handoff.
+
+kubeconfig_context = "shared-cluster"
+
+ingress = {
+  controller = "existing"
+  class_name = "nginx" # your IngressClass
+  # Added to every Klique Ingress. Example for an nginx-family controller:
+  # uploads to the fileserver and long-lived session connections.
+  annotations = {
+    "nginx.ingress.kubernetes.io/proxy-body-size"    = "0"
+    "nginx.ingress.kubernetes.io/proxy-read-timeout" = "3600"
+    "nginx.ingress.kubernetes.io/proxy-send-timeout" = "3600"
+  }
+}
+
+cert_manager     = { install = false }
+external_secrets = { install = false }
+
+dns = {
+  mode        = "custom"
+  base_domain = "klique.corp.example"
+}
+
+tls = {
+  mode        = "issuer"
+  issuer_kind = "ClusterIssuer"
+  issuer_name = "corp-vault-issuer"
+  # The root that issuer chains to, if private (omit for a public CA):
+  trust_ca_pem = <<-PEM
+    -----BEGIN CERTIFICATE-----
+    ...
+    -----END CERTIFICATE-----
+  PEM
+}
+
+# Pod Security on the namespace Terraform creates.
+klique_namespace_labels = {
+  "pod-security.kubernetes.io/warn" = "baseline"
+}
+
+# Charts from an internal mirror (credentials: helm_repository_credentials,
+# sensitive). Only the add-ons Terraform still installs need one — here none,
+# since all three are "existing"/install = false.
+
+# Azure Key Vault with workload identity.
+secret_store = {
+  provider_yaml = <<-YAML
+    azurekv:
+      vaultUrl: https://<vault-name>.vault.azure.net
+      authType: WorkloadIdentity
+      serviceAccountRef:
+        name: klique-eso
+  YAML
+}

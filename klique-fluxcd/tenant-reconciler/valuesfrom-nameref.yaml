@@ -1,0 +1,12 @@
+# Kustomize transformer config, wired in from kustomization.yaml's
+# `configurations`: propagates the content-hash suffix of the tenant's
+# `tenant-config` ConfigMap into the HelmReleases' valuesFrom, the same way
+# ../klique/valuesfrom-nameref.yaml does for the control-plane. A reference to
+# a ConfigMap this build does not generate (klique-platform,
+# klique-values-*) is left as it is.
+nameReference:
+  - kind: ConfigMap
+    version: v1
+    fieldSpecs:
+      - path: spec/valuesFrom/name
+        kind: HelmRelease

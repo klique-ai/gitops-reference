@@ -1,0 +1,120 @@
+# The klique-platform and klique-platform-vars ConfigMaps, by hand — for
+# clusters where klique-terraform is not used. NOT reconciled by Flux (they sit
+# outside every Kustomization path, and hold cluster facts, not desired state
+# from git).
+#
+# klique-terraform renders exactly this shape from its variables; if you write
+# it yourself, replace klique.example.com, the IngressClass, the TLS Secret
+# name and the ClusterIssuer, then:
+#
+#   kubectl create namespace klique
+#   kubectl apply -f klique-platform.example.yaml
+#
+# Every key here is cluster-specific and owned by THIS ConfigMap — none of
+# them may also appear in klique/values/*.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: klique-platform
+  namespace: klique
+  labels:
+    # helm-controller upgrades the releases as soon as this changes.
+    reconcile.fluxcd.io/watch: Enabled
+data:
+  control-plane.yaml: |
+    controlPlane:
+      # No leading dot — the chart prepends it.
+      cookieDomain: "klique.example.com"
+    apiserver:
+      ingress:
+        enabled: true
+        ingressClassName: traefik
+        hostName: api.klique.example.com
+        tlsSecretName: klique-tls
+    fileserver:
+      ingress:
+        enabled: true
+        ingressClassName: traefik
+        hostName: files.klique.example.com
+        tlsSecretName: klique-tls
+    webserver:
+      displayedServerURLs:
+        apiserver: "https://api.klique.example.com"
+        fileserver: "https://files.klique.example.com"
+      ingress:
+        enabled: true
+        ingressClassName: traefik
+        hostName: app.klique.example.com
+        tlsSecretName: klique-tls
+    applications:
+      apiServerUrlReferenceOverride: "https://api.klique.example.com"
+      fileServerUrlReferenceOverride: "https://files.klique.example.com"
+      webServerUrlReferenceOverride: "https://app.klique.example.com"
+      # Private CA only — the root the certificates chain to:
+      # customCertificates:
+      #   extraCerts:
+      #     - alias: klique-root-ca
+      #       pem: |
+      #         -----BEGIN CERTIFICATE-----
+      #         ...
+
+  orchestrator.yaml: |
+    orchestratork8sglue:
+      apiServerUrlReference: "https://api.klique.example.com"
+      fileServerUrlReference: "https://files.klique.example.com"
+      webServerUrlReference: "https://app.klique.example.com"
+    # Private CA only — also mounted into every task pod (keep it the FIRST
+    # extraCerts entry: values/orchestrator.yaml mounts custom-ca-0 only):
+    # customCertificates:
+    #   propagateToTasks: true
+    #   extraCerts:
+    #     - alias: klique-root-ca
+    #       pem: |
+    #         ...
+
+  # Shared by every tenant's gateway. Its host (<tenant>.sessions.<domain>),
+  # TLS Secret, externalURL and streamSession are set per tenant by the
+  # tenant's HelmRelease (tenant-reconciler/helmrelease-gateway.yaml), so they
+  # are NOT here.
+  gateway.yaml: |
+    controlPlane:
+      apiServerUrlReference: "https://api.klique.example.com"
+    ingress:
+      enabled: true
+      ingressClassName: traefik
+    # Private CA only:
+    # customCertificates:
+    #   extraCerts:
+    #     - alias: klique-root-ca
+    #       pem: |
+    #         ...
+
+  domain: klique.example.com
+  ingress_class: traefik
+  # Public URLs as plain scalars, for consumers that are not Helm charts.
+  # app_url is read by the tenant reconciler Jobs (tenant-reconciler/job.yaml)
+  # to log each tenant's login and SSO callback URLs. Optional: without it a
+  # Job still reconciles, but logs a placeholder instead of those URLs.
+  app_url: "https://app.klique.example.com"
+  api_url: "https://api.klique.example.com"
+---
+# The same facts as flat variables, for Flux postBuild substitution in the
+# tenants Kustomization (kustomizations/tenants.yaml): each tenant's gateway
+# host and its Certificate. klique-platform's own keys (control-plane.yaml,
+# ...) are not valid variable names, hence a second ConfigMap.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: klique-platform-vars
+  namespace: klique
+data:
+  KLIQUE_DOMAIN: klique.example.com
+  # Tenant gateways live at <tenant>.<this>. Point DNS for *.<this> at the
+  # ingress (a DNS wildcard also covers <app>.<tenant>.<this>).
+  KLIQUE_SESSIONS_HOST: sessions.klique.example.com
+  # Must be a cert-manager ClusterIssuer that can issue wildcards (with ACME:
+  # a DNS-01 solver): each tenant gets a certificate for <tenant>.<sessions
+  # host> and *.<tenant>.<sessions host>.
+  KLIQUE_ISSUER_KIND: ClusterIssuer
+  KLIQUE_ISSUER_NAME: <your-cluster-issuer>
+  KLIQUE_INGRESS_CLASS: traefik

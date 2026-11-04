@@ -1,0 +1,51 @@
+# Rendered by ingress.tf from var.ingress. Partner overrides go in
+# ingress.extra_values, which is applied after this file.
+
+deployment:
+  replicas: ${replicas}
+
+ingressClass:
+  enabled: true
+  # Default false: on a shared cluster, claiming every class-less Ingress is
+  # not ours to decide. The Klique charts name the class explicitly.
+  isDefaultClass: ${default_class}
+  name: ${class_name}
+
+providers:
+  kubernetesIngress:
+    enabled: true
+    # Copies the LB address into each Ingress's status, so `kubectl get ingress`
+    # shows where the hostnames must point.
+    publishedService:
+      enabled: true
+
+ports:
+%{ if redirect_to_https ~}
+  web:
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+%{ endif ~}
+  websecure:
+    transport:
+      respondingTimeouts:
+        # Traefik v3 cuts a request that takes longer than 60s to READ — i.e. a
+        # large artifact upload to the fileserver. 0 = no limit.
+        readTimeout: 0
+
+service:
+  annotations: ${service_annotations}
+  spec:
+    type: ${service_type}
+%{ if load_balancer_ip != "" ~}
+    loadBalancerIP: ${load_balancer_ip}
+%{ endif ~}
+%{ if load_balancer_class != "" ~}
+    loadBalancerClass: ${load_balancer_class}
+%{ endif ~}
+
+nodeSelector: ${node_selector}
+tolerations: ${tolerations}

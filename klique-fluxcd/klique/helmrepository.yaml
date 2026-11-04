@@ -1,0 +1,20 @@
+# The Klique charts, pulled as OCI artifacts from Docker Hub.
+#
+# THE HOST MUST BE index.docker.io, NOT docker.io. Both serve the same charts,
+# but Flux's source-controller resolves the pull credential by the URL's host
+# and asserts it matches the credential entry it got back; modern docker
+# clients normalise `docker.io` to `https://index.docker.io/v1/`, so with host
+# `docker.io` the assertion fails with:
+#   no auth config for 'docker.io' in the docker-registry Secret 'klique-dockerhub'
+# No set of auths keys can satisfy it while the host is docker.io.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: klique
+  namespace: klique
+spec:
+  type: oci
+  url: oci://index.docker.io/kliqueai
+  interval: 30m
+  secretRef:
+    name: klique-dockerhub

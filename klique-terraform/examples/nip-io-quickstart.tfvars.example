@@ -1,0 +1,38 @@
+# Quickstart: nothing but a cluster with LoadBalancer support.
+#   Traefik + cert-manager + ESO, a Terraform-minted private CA, and
+#   hostnames under <LB IP>.nip.io — no DNS, no certificates to bring.
+#
+# Not for production: the CA key lives in TF state, and every user must
+# import the CA (terraform output -raw ca_certificate_pem) to get a clean
+# padlock and to point the SDK at it (REQUESTS_CA_BUNDLE).
+
+kubeconfig_context = "my-cluster"
+
+# All defaults, spelled out:
+ingress = { controller = "traefik" }
+dns     = { mode = "nip.io" }         # or wildcard_dns_suffix = "sslip.io"
+tls     = { mode = "self-signed-ca" }
+
+# The secret backend every ExternalSecret reads from (any ESO provider).
+# Empty = no SecretStore, and Klique stays NotReady until you add one.
+# Example — HashiCorp Vault, Kubernetes auth:
+# secret_store = {
+#   provider_yaml = <<-YAML
+#     vault:
+#       server: https://vault.example.com
+#       path: kv
+#       version: v2
+#       auth:
+#         kubernetes:
+#           mountPath: kubernetes
+#           role: klique
+#   YAML
+# }
+
+# Klique chart values from tfvars — win over the git values files.
+klique_values = {
+  control_plane = <<-YAML
+    controlPlane:
+      maxUsers: 10
+  YAML
+}

@@ -1,0 +1,55 @@
+# klique-platform / control-plane.yaml — rendered by klique-terraform
+# (platform-handoff.tf). Do not edit in the cluster: change the tfvars and
+# re-apply. Owns every cluster-specific key of the control-plane release;
+# functional config stays in the GitOps repo's values/control-plane.yaml.
+
+controlPlane:
+  # Must cover every hostname the UI is served from, or the login session is
+  # dropped when the browser follows the webserver -> apiserver redirect.
+  # No leading dot: the chart prepends it (".x" would render as "..x").
+  cookieDomain: "${domain}"
+
+apiserver:
+  ingress:
+    enabled: true
+    ingressClassName: ${ingress_class}
+    hostName: ${api_host}
+    tlsSecretName: ${tls_secret}
+    annotations: ${ingress_annotations}
+
+fileserver:
+  ingress:
+    enabled: true
+    ingressClassName: ${ingress_class}
+    hostName: ${files_host}
+    tlsSecretName: ${tls_secret}
+    annotations: ${ingress_annotations}
+
+webserver:
+  # What the UI shows users as their server addresses — the public hostnames,
+  # not in-cluster Service names, or every copied SDK snippet is wrong.
+  displayedServerURLs:
+    apiserver: "https://${api_host}"
+    fileserver: "https://${files_host}"
+  ingress:
+    enabled: true
+    ingressClassName: ${ingress_class}
+    hostName: ${app_host}
+    tlsSecretName: ${tls_secret}
+    annotations: ${ingress_annotations}
+
+# The URL overrides are what a launched Klique App reports back.
+applications:
+  apiServerUrlReferenceOverride: "https://${api_host}"
+  fileServerUrlReferenceOverride: "https://${files_host}"
+  webServerUrlReferenceOverride: "https://${app_host}"
+%{ if trust_ca_pem != "" ~}
+  # The private root the certificates chain to, so Apps can call the
+  # apiserver over https. OWNED HERE: Helm replaces lists, so a second
+  # extraCerts in the GitOps values would drop this one.
+  customCertificates:
+    extraCerts:
+      - alias: klique-root-ca
+        pem: |
+          ${indent(10, trust_ca_pem)}
+%{ endif ~}

@@ -1,0 +1,179 @@
+# The e2e harness's IdP: Keycloak in dev mode, one realm per e2e tenant
+# (realm-*.json next to this file, imported at start). Applied by e2e.sh, not
+# by Flux, after replacing __DOMAIN__ with the run's nip.io domain.
+#
+# Two ways in, on purpose:
+#   - the browser side (curl on the host, standing in for a user's browser)
+#     uses https://keycloak.__DOMAIN__ through Traefik, with a certificate from
+#     the quickstart's ClusterIssuer klique-ca;
+#   - the apiserver redeems OIDC codes in-cluster over plain http
+#     (keycloak.keycloak.svc:8080), so it never has to trust the private CA.
+# Keycloak derives its URLs from each request (hostname-strict=false), which
+# is what lets one realm answer on both.
+#
+# Passwords and client secrets are NOT here or in the realm files: the realms
+# carry ${E2E_*} placeholders, resolved at import from Secret keycloak-env,
+# which e2e.sh creates at run time from the values it keeps in OpenBao.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keycloak
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: keycloak
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      # start-dev rebuilds Keycloak's Quarkus jars under /opt/keycloak/lib at
+      # every start, so /opt/keycloak must be writable. A copy of it in an
+      # emptyDir is, and the root filesystem stays read-only.
+      initContainers:
+        - name: copy-home
+          image: >-
+            quay.io/keycloak/keycloak:26.8.0@sha256:27b3230fbabb8c9ff3c66c864cf09dcd8a41aca82e5100679d109ef0eeb05741
+          command: ["sh", "-c", "cp -R /opt/keycloak/. /keycloak-home/"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: keycloak-home
+              mountPath: /keycloak-home
+      containers:
+        - name: keycloak
+          # Pinned by digest; quay.io is Keycloak's own registry.
+          image: >-
+            quay.io/keycloak/keycloak:26.8.0@sha256:27b3230fbabb8c9ff3c66c864cf09dcd8a41aca82e5100679d109ef0eeb05741
+          args:
+            - start-dev
+            - --import-realm
+            - --http-enabled=true
+            - --proxy-headers=xforwarded
+            - --hostname-strict=false
+          env:
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+          envFrom:
+            - secretRef:
+                name: keycloak-env
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 9000
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: management
+            periodSeconds: 5
+          startupProbe:
+            httpGet:
+              path: /health/started
+              port: management
+            periodSeconds: 5
+            failureThreshold: 60
+          resources:
+            requests:
+              cpu: 250m
+              memory: 768Mi
+            limits:
+              cpu: "2"
+              memory: 1536Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: keycloak-home
+              mountPath: /opt/keycloak
+            - name: tmp
+              mountPath: /tmp
+            - name: realms
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+      volumes:
+        - name: keycloak-home
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: realms
+          configMap:
+            name: keycloak-realms
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: keycloak
+spec:
+  selector:
+    app.kubernetes.io/name: keycloak
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: keycloak-tls
+  namespace: keycloak
+spec:
+  secretName: keycloak-tls
+  dnsNames:
+    - keycloak.__DOMAIN__
+  issuerRef:
+    kind: ClusterIssuer
+    name: klique-ca
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: keycloak
+  namespace: keycloak
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - keycloak.__DOMAIN__
+      secretName: keycloak-tls
+  rules:
+    - host: keycloak.__DOMAIN__
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: keycloak
+                port:
+                  name: http

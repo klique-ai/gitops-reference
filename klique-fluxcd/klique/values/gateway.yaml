@@ -1,0 +1,25 @@
+# Helm values for the gateway chart, shared by every tenant's gateway
+# (HelmRelease <tenant>-gateway, from ../tenant-reconciler/).
+#
+# klique-platform / gateway.yaml is read BEFORE this file and owns the
+# cluster-specific keys: apiServerUrlReference, ingress class and annotations,
+# customCertificates. None of them may appear here. Each tenant's HelmRelease
+# sets its own ingress.hostName, ingress.tlsSecretName, externalURL and
+# streamSession last, so those may not appear here either.
+
+imageCredentials:
+  existingImagePullSecrets:
+    - name: klique-dockerhub
+
+controlPlane:
+  authEnabled: true
+  # Verify the apiserver's certificate. With a private CA, klique-platform
+  # adds it to customCertificates so this keeps working.
+  sslVerify: true
+  # The credential Secret BY NAME: app-gateway in the tenant namespace, the
+  # key the tenant's reconciler Job minted for its gateway. A rename of these
+  # keys on either side fails at runtime, not at render.
+  existingSecret: app-gateway
+  existingSecretKeys:
+    apiKey: access_key
+    apiSecret: secret_key

@@ -1,0 +1,58 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: tenants
+  # In klique, not flux-system: Flux substitution (postBuild.substituteFrom)
+  # can only read ConfigMaps in the Kustomization's own namespace, and the
+  # cluster facts live in klique-platform, in klique. The cost is the two
+  # cross-namespace references below to flux-system, which a Flux install
+  # locked down with --no-cross-namespace-refs refuses.
+  namespace: klique
+spec:
+  interval: 10m
+  # ./klique-fluxcd/tenants has NO kustomization.yaml on purpose: Flux then
+  # generates one that includes every subfolder holding a kustomization.yaml,
+  # so adding a tenant is adding a folder. It would also include any .yaml
+  # file sitting directly in tenants/ — scripts/check.sh forbids those.
+  path: ./klique-fluxcd/tenants
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+
+  # The Jobs need the Platform Management server, the apiserver, klique-conf
+  # and their ServiceAccount, all from the klique Kustomization — which is
+  # Ready only once its HelmReleases are healthy.
+  dependsOn:
+    - name: klique
+      namespace: flux-system
+
+  # Removing a tenant folder removes its Job, ConfigMap, RoleBinding and
+  # ExternalSecret. NOT its Namespace (annotated prune: disabled, it holds the
+  # minted keys) and never the Klique tenant: nothing here deletes tenants.
+  prune: true
+
+  # Jobs are immutable: a changed Job spec (tenant files, script or image
+  # changed) fails to apply in place, and force makes Flux delete and recreate
+  # it — which is what reruns the reconcile.
+  force: true
+
+  # The per-tenant gateway host (<tenant>.<sessions host>) and the issuer of
+  # its Certificate are cluster facts: ${KLIQUE_SESSIONS_HOST},
+  # ${KLIQUE_ISSUER_KIND} and ${KLIQUE_ISSUER_NAME} in the rendered manifests
+  # are filled in from klique-platform-vars (written by klique-terraform, or by
+  # hand from ../klique-platform.example.yaml). Every ${...} anywhere under
+  # tenants/ is substituted, tenant files included; scripts/check.sh allows
+  # only that ConfigMap's keys. A missing ConfigMap fails the reconcile.
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: klique-platform-vars
+
+  # Ready means every tenant's Job completed, every ExternalSecret synced and
+  # every orchestrator and gateway release is healthy, not just that the
+  # objects were created. A failed Job fails this
+  # Kustomization with the Job's name; `kubectl -n klique logs job/<name>` has
+  # the reason.
+  wait: true
+  timeout: 30m

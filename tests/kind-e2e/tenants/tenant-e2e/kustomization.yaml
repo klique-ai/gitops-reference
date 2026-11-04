@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# An e2e-only tenant, same shape as klique-fluxcd/tenants/tenant-example, but
+# reconciled by the harness's own Flux Kustomization (../../flux/), which also
+# fills in the run's values (${KLIQUE_DOMAIN}, the Keycloak SAML certificate).
+namespace: tenant-e2e
+
+resources:
+  - externalsecret-sso.yaml
+
+components:
+  - ../../../../klique-fluxcd/tenant-reconciler
+
+configMapGenerator:
+  - name: tenant-config
+    files:
+      - tenant.json
+      - idp-metadata.xml
+
+replacements:
+  - path: ../../../../klique-fluxcd/tenant-reconciler/replacements.yaml

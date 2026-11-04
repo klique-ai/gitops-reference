@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Keycloak realm tenant-e2e's SAML IdP metadata, as its descriptor
+  (/realms/tenant-e2e/protocol/saml/descriptor) serves it, trimmed to what the
+  service provider uses. Two values exist only at run time and are filled in
+  by Flux (postBuild.substituteFrom ConfigMap kind-e2e-vars, written by
+  tests/kind-e2e/e2e.sh): the run's domain, and the realm's signing
+  certificate, which Keycloak generates when it imports the realm. The
+  certificate is public; its private key never leaves Keycloak.
+-->
+<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" entityID="https://keycloak.${KLIQUE_DOMAIN}/realms/tenant-e2e">
+  <md:IDPSSODescriptor WantAuthnRequestsSigned="false" protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+    <md:KeyDescriptor use="signing">
+      <ds:KeyInfo>
+        <ds:X509Data>
+          <ds:X509Certificate>${KEYCLOAK_SAML_CERT_TENANT_E2E}</ds:X509Certificate>
+        </ds:X509Data>
+      </ds:KeyInfo>
+    </md:KeyDescriptor>
+    <md:NameIDFormat>urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified</md:NameIDFormat>
+    <md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://keycloak.${KLIQUE_DOMAIN}/realms/tenant-e2e/protocol/saml"/>
+    <md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://keycloak.${KLIQUE_DOMAIN}/realms/tenant-e2e/protocol/saml"/>
+  </md:IDPSSODescriptor>
+</md:EntityDescriptor>

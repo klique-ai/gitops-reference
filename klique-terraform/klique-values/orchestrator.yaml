@@ -1,0 +1,25 @@
+# klique-platform / orchestrator.yaml — rendered by klique-terraform
+# (platform-handoff.tf). Do not edit in the cluster: change the tfvars and
+# re-apply.
+
+orchestratork8sglue:
+  # Public hostnames, not in-cluster Service names: every task pod the glue
+  # spawns inherits these, so they are what a task reports back and what a
+  # user sees.
+  apiServerUrlReference: "https://${api_host}"
+  fileServerUrlReference: "https://${files_host}"
+  webServerUrlReference: "https://${app_host}"
+%{ if trust_ca_pem != "" ~}
+
+# The private root the certificates chain to. propagateToTasks mounts it into
+# every task pod too — without it, a task's first call to the apiserver fails
+# certificate verification. OWNED HERE (Helm replaces lists). Keep this the
+# FIRST (index 0) extraCerts entry: klique-fluxcd's values/orchestrator.yaml
+# mounts klique-orchestrator-custom-ca-0 into task containers by that name.
+customCertificates:
+  propagateToTasks: true
+  extraCerts:
+    - alias: klique-root-ca
+      pem: |
+        ${indent(8, trust_ca_pem)}
+%{ endif ~}

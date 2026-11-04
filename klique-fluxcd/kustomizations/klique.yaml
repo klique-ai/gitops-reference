@@ -1,0 +1,32 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: klique
+  namespace: flux-system
+spec:
+  interval: 10m
+  # Relative to the ROOT of the GitRepository, not to this file: the repo holds
+  # several examples side by side, so the example's directory is part of it.
+  path: ./klique-fluxcd/klique
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+
+  # Deleting a manifest in ./klique deletes the object in the cluster. Without
+  # prune the repo quietly stops being the source of truth — a failure that
+  # stays invisible until someone wonders why a removed HelmRelease still runs.
+  prune: true
+
+  wait: false
+  timeout: 30m
+
+  # Health check, so this Kustomization only reports Ready when the release is
+  # actually healthy — `flux get kustomizations` otherwise goes green the
+  # moment the HelmRelease is created, well before the apiserver answers. The
+  # orchestrators and gateways are per tenant: the tenants Kustomization
+  # waits for those.
+  healthChecks:
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      name: control-plane
+      namespace: klique

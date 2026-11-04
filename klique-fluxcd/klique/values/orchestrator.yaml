@@ -1,0 +1,77 @@
+# Helm values for the orchestrator chart, shared by every tenant's
+# orchestrator (HelmRelease <tenant>-orchestrator, from ../tenant-reconciler/).
+#
+# klique-platform / orchestrator.yaml is read BEFORE this file and owns the
+# cluster-specific keys: the three orchestratork8sglue.*ServerUrlReference
+# URLs and customCertificates. None of them may appear here. A tenant's own
+# orchestrator-values.yaml, if it has one, is read AFTER this file.
+
+# APPENDS to the chart-generated pull secret, and is also appended to every
+# task pod the glue spawns — which is what lets tasks pull private images.
+imageCredentials:
+  extraImagePullSecrets:
+    - name: klique-dockerhub
+
+# The credential Secret, BY NAME — the chart reads the pair out of it, so no
+# secret value passes through Helm values. Secret orchestrator in the tenant
+# namespace holds the key the tenant's reconciler Job minted for it, under
+# access_key/secret_key. config "" = no clearml.conf entry in that Secret: the
+# glue runs on the CLEARML_* environment only.
+controlPlane:
+  existingSecret: orchestrator
+  existingSecretKeys:
+    apiKey: access_key
+    apiSecret: secret_key
+    config: ""
+
+orchestratork8sglue:
+  createQueues: true
+  # The image a task pod gets when the task does not specify one.
+  defaultContainerImage: "ubuntu:22.04"
+
+  # Private CA in task pods. The chart's init container builds /etc/ssl/certs
+  # with the CA, but an image that reinstalls ca-certificates (ubuntu does,
+  # during agent bootstrap) reruns update-ca-certificates and drops it. Mounting
+  # the CA source too makes every rerun add it back. The ConfigMap is the
+  # chart's <releaseName>-custom-ca-<index of klique-platform's extraCerts
+  # entry>; optional, because with a public CA it does not exist. Certs given
+  # as customCertificates.extraExistingCerts are NOT covered by this mount.
+  # Every queue inherits this. For a queue's own volumes, prefer
+  # templateOverrides.extraVolumes / extraVolumeMounts: they ADD to these lists
+  # and keep the CA mount. templateOverrides.volumes / volumeMounts REPLACE
+  # them — then copy both entries into the queue.
+  basePodTemplate:
+    volumes:
+      - name: klique-task-ca-source
+        configMap:
+          name: klique-orchestrator-custom-ca-0
+          optional: true
+    volumeMounts:
+      - name: klique-task-ca-source
+        mountPath: /usr/local/share/ca-certificates/klique
+        readOnly: true
+
+  # One queue to start from. A queue entry is what ONE task requests, not a
+  # node — size these against your own nodes, and add nodeSelector/tolerations
+  # that match them.
+  #
+  # NAMES: lowercase and hyphens only. The chart builds a Secret name from the
+  # queue name when a queue has file mounts, and a Secret name cannot contain
+  # `_` or uppercase — a bad name renders fine until someone adds a file mount,
+  # then fails the release. A queue's name is also its identity in ClearML:
+  # renaming creates a NEW queue and leaves the old one behind, to be deleted
+  # in the UI.
+  queues:
+    default:
+      queueSettings:
+        maxPods: 8
+      templateOverrides:
+        # Memory limit = request, so a runaway task is OOM-killed instead of
+        # evicting its neighbours. No CPU limit, so a task may use whatever CPU
+        # its node has idle.
+        resources:
+          requests:
+            cpu: 850m
+            memory: 3Gi
+          limits:
+            memory: 3Gi

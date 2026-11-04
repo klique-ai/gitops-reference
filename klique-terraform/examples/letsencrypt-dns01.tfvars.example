@@ -1,0 +1,37 @@
+# Public certificates from Let's Encrypt. DNS-01 is REQUIRED: the gateway
+# needs *.sessions.<domain>, and HTTP-01 cannot issue wildcards.
+#
+# The solver's credentials are a Secret in the cert-manager namespace you
+# create yourself (here: a Cloudflare API token):
+#   kubectl -n cert-manager create secret generic cloudflare-api-token \
+#     --from-literal=api-token=<token>
+# Other DNS providers: https://cert-manager.io/docs/configuration/acme/dns01/
+
+kubeconfig_context = "my-cluster"
+
+dns = {
+  mode        = "custom"
+  base_domain = "klique.example.com"
+}
+
+tls = {
+  mode       = "acme"
+  acme_email = "ops@example.com"
+  # Staging first, to stay clear of Let's Encrypt's rate limits:
+  # acme_server = "https://acme-staging-v02.api.letsencrypt.org/directory"
+  acme_solvers_yaml = <<-YAML
+    - dns01:
+        cloudflare:
+          apiTokenSecretRef:
+            name: cloudflare-api-token
+            key: api-token
+  YAML
+}
+
+# Google Secret Manager with GKE Workload Identity.
+secret_store = {
+  provider_yaml = <<-YAML
+    gcpsm:
+      projectID: my-project
+  YAML
+}

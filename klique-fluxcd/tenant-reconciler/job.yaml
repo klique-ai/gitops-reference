@@ -1,0 +1,140 @@
+# One Job per tenant, named <tenant>-reconcile, in klique: it creates the
+# Klique tenant if missing, mints its keys into the tenant namespace, and
+# configures the tenant's SSO. It runs in klique, not in the tenant namespace,
+# so neither the platform-wide management key it reads from klique-conf nor
+# the tenant's IdP secrets ever leave klique.
+#
+# It runs when its spec changes and only then: the mounted ConfigMap's name
+# carries a content hash, so editing tenant.json, an IdP metadata file or the
+# script gives the Job a new spec, and Flux (force: true, Jobs are immutable)
+# recreates it. No ttlSecondsAfterFinished on purpose: a Job deleted by TTL
+# would be recreated by Flux, and rerun, at every interval.
+#
+# To rerun one tenant without a commit:
+#   kubectl -n klique delete job <tenant>-reconcile
+#   flux reconcile kustomization tenants -n klique
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: TENANT-reconcile
+  namespace: klique
+spec:
+  backoffLimit: 4
+  # Below the tenants Kustomization's timeout, so a stuck run fails the
+  # Kustomization with the Job's own error rather than a timeout.
+  activeDeadlineSeconds: 1200
+  template:
+    spec:
+      serviceAccountName: tenant-reconciler
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        # Gives the mounted Secret's files this group, so mode 0440 below makes
+        # them readable by the Job and by nobody else on the node.
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: reconcile
+          # The official image, stdlib only: nothing to build or publish. Pinned
+          # by digest so a tag move cannot change what runs; bumping it reruns
+          # every tenant's Job.
+          image: >-
+            python:3.12-slim@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30
+          command:
+            - python
+            - /tenant/reconcile.py
+          env:
+            # Replaced with the tenant name (the folder's `namespace:`). No other
+            # variable may start with TENANT: the replacement's selector
+            # (env.[name=TENANT]) matches by prefix and would overwrite it too.
+            # scripts/check.sh checks the rendered env.
+            - name: TENANT
+              value: TENANT
+            - name: CONFIG_DIR
+              value: /tenant
+            - name: SECRETS_DIR
+              value: /tenant-secrets
+            # In-cluster Services of the control-plane release: the names are
+            # <releaseName>-control-plane-<component>, so they follow
+            # releaseName `klique` in ../klique/helmrelease-control-plane.yaml.
+            # Plain http, never shown to a user.
+            - name: PM_URL
+              value: http://klique-control-plane-platform-management-server.klique.svc:5210
+            - name: API_URL
+              value: http://klique-control-plane-apiserver.klique.svc:8008
+            # Two pairs, both generated or held by the chart in klique-conf:
+            # the Platform Management pair may call only the PM server's
+            # tenants.* API; the apiserver's own pair makes the system.* and
+            # sso.* calls on the apiserver.
+            - name: PM_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: klique-conf
+                  key: platform_management_key
+            - name: PM_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: klique-conf
+                  key: platform_management_secret
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: klique-conf
+                  key: apiserver_key
+            - name: API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: klique-conf
+                  key: apiserver_secret
+            # The public web UI URL, for the login and SSO callback URLs the
+            # Job logs. Optional: without it the Job logs a placeholder.
+            - name: APP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: klique-platform
+                  key: app_url
+                  optional: true
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: tenant-config
+              mountPath: /tenant
+              readOnly: true
+            # One file per key: tenant.json's {"key": "<k>"} is read from
+            # /tenant-secrets/<k>.
+            - name: tenant-secrets
+              mountPath: /tenant-secrets
+              readOnly: true
+      volumes:
+        # Renamed to <tenant>-config-<hash> by ./replacements.yaml and kustomize.
+        - name: tenant-config
+          configMap:
+            name: tenant-config
+        # The IdP secrets, from the tenant folder's ExternalSecret, which
+        # ./replacements.yaml moves to klique as <tenant>-sso: they stay in
+        # klique, never in the tenant namespace. Optional, because a tenant
+        # with no IdP secret has no ExternalSecret; a key tenant.json refers
+        # to but that is missing fails the Job, naming the field.
+        - name: tenant-secrets
+          secret:
+            secretName: tenant-sso
+            optional: true
+            defaultMode: 288  # 0440: owner root, group fsGroup (65534)

@@ -1,0 +1,20 @@
+{
+  "sso": {
+    "adminGroups": ["e2e-b-admins"],
+    "providers": [
+      {
+        "id": "oidc",
+        "preset": "keycloak",
+        "displayName": "kind e2e OIDC (tenant-e2e-b)",
+        "clientId": "klique-tenant-e2e-b",
+        "clientSecret": {"key": "oidcClientSecret"},
+        "authorizationEndpoint": "https://keycloak.${KLIQUE_DOMAIN}/realms/tenant-e2e-b/protocol/openid-connect/auth",
+        "endSessionEndpoint": "https://keycloak.${KLIQUE_DOMAIN}/realms/tenant-e2e-b/protocol/openid-connect/logout",
+        "logoutFromProvider": true,
+        "tokenEndpoint": "http://keycloak.keycloak.svc:8080/realms/tenant-e2e-b/protocol/openid-connect/token",
+        "scopes": ["openid", "profile", "email"],
+        "claims": {"tenant": "tenant", "groups": "groups"}
+      }
+    ]
+  }
+}

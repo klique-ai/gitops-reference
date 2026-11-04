@@ -1,0 +1,19 @@
+# The tenant's namespace. Its name here is a template: the tenant folder's
+# `namespace:` line renames it to the tenant name, which is the ONLY place a
+# tenant's name is written.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: TENANT
+  labels:
+    # Lets ClusterSecretStore klique-dockerhub serve this namespace and makes
+    # ClusterExternalSecret klique-dockerhub copy the pull secret into it
+    # (../klique/secretstore-tenants.yaml).
+    klique.clearml.ai/tenant: "true"
+  annotations:
+    # Removing a tenant folder must not delete the namespace: it holds the
+    # tenant's minted keys (Secrets orchestrator and app-gateway), and the
+    # Klique tenant itself is never deleted either. (The tenant's orchestrator
+    # and gateway releases ARE removed: their HelmReleases are pruned.) Delete
+    # the namespace by hand if you really mean to.
+    kustomize.toolkit.fluxcd.io/prune: disabled

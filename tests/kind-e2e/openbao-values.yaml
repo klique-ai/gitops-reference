@@ -1,0 +1,45 @@
+# Values for the official OpenBao chart (openbao/openbao, pinned in e2e.sh),
+# installed by the e2e harness as the secret backend inside kind.
+#
+# Dev mode on purpose: in-memory storage, unsealed at start, no PVC. Nothing
+# survives a pod restart, which is right for a throwaway test cluster and
+# wrong for anything else. The root token is NOT set here: e2e.sh generates
+# one per run and passes it to helm on stdin.
+#
+# ESO reaches it through its `vault` provider with Kubernetes auth, exactly as
+# the commented example in klique-terraform/examples/nip-io-quickstart.tfvars.example
+# shows; only `server` points here instead.
+
+injector:
+  enabled: false
+
+ui:
+  enabled: false
+
+server:
+  dev:
+    enabled: true
+
+  # Kubernetes auth: OpenBao reviews the ESO service-account token with a
+  # TokenReview, which needs system:auth-delegator (the chart default, kept
+  # explicit because the harness depends on it).
+  authDelegator:
+    enabled: true
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  statefulSet:
+    securityContext:
+      # Setting `container` replaces the chart's default container context, so
+      # its allowPrivilegeEscalation: false is restated here. The pod context
+      # stays the chart default (runAsNonRoot, uid 100, seccomp RuntimeDefault).
+      container:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]

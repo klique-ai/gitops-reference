@@ -1,0 +1,38 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# What every tenant folder under ../tenants/ pulls in: its Namespace, the Job
+# that creates and configures the Klique tenant, the RoleBinding that lets that
+# Job write the tenant's key Secrets, and the tenant's own orchestrator and
+# gateway (HelmReleases in klique, installed into the tenant namespace) with
+# the gateway's Certificate. Not reconciled on its own — each tenant folder
+# lists it under `components:`.
+#
+# The names below are TEMPLATES. The tenant folder's `namespace:` line renames
+# the Namespace to the tenant name; ./replacements.yaml then derives every
+# other per-tenant name from it. The replacements cannot live here: a
+# component's replacements run BEFORE the folder's `namespace:`, so they would
+# never see the tenant name.
+resources:
+  - namespace.yaml
+  - rolebinding.yaml
+  - job.yaml
+  - helmrelease-orchestrator.yaml
+  - helmrelease-gateway.yaml
+  - certificate-gateway.yaml
+
+# The script travels in the same ConfigMap as the tenant's own files (the
+# folder's `tenant-config` generator), so the Job mounts one volume. Editing
+# the script changes every tenant's ConfigMap hash, so every tenant's Job
+# reruns; editing one tenant's files reruns only that tenant.
+configMapGenerator:
+  - name: tenant-config
+    behavior: merge
+    files:
+      - reconcile.py
+
+# Kustomize has no built-in rule for HelmRelease.spec.valuesFrom, so without
+# this the HelmReleases would keep pointing at `tenant-config` instead of the
+# hashed <tenant>-config-<hash> the Job mounts.
+configurations:
+  - valuesfrom-nameref.yaml

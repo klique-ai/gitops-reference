@@ -1,0 +1,32 @@
+{
+  "limits": {
+    "maxUsers": 20,
+    "maxServiceUsers": 5
+  },
+  "sso": {
+    "adminGroups": ["klique-admins"],
+    "builderGroups": ["klique-builders"],
+    "providers": [
+      {
+        "id": "oidc",
+        "preset": "keycloak",
+        "displayName": "Example OIDC",
+        "clientId": "<oidc-client-id>",
+        "clientSecret": {"key": "oidcClientSecret"},
+        "authorizationEndpoint": "https://idp.example.com/realms/<realm>/protocol/openid-connect/auth",
+        "tokenEndpoint": "https://idp.example.com/realms/<realm>/protocol/openid-connect/token",
+        "endSessionEndpoint": "https://idp.example.com/realms/<realm>/protocol/openid-connect/logout",
+        "logoutFromProvider": true,
+        "claims": {"tenant": "tenant", "groups": "groups"}
+      },
+      {
+        "id": "saml",
+        "preset": "saml",
+        "displayName": "Example SAML",
+        "entityId": "<sp-entity-id>",
+        "idpMetadataFile": "idp-metadata.xml",
+        "claims": {"tenant": "tenant", "groups": "groups"}
+      }
+    ]
+  }
+}

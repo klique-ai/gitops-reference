@@ -1,0 +1,20 @@
+# Lets the reconciler Job (ServiceAccount tenant-reconciler in klique, see
+# ./rbac/) write Secrets in THIS tenant's namespace only. One RoleBinding per
+# tenant namespace, never a ClusterRoleBinding: the ClusterRole is just the
+# rule set.
+#
+# subjects[0].namespace is also the SOURCE ./replacements.yaml copies to move
+# the Job, its ConfigMap and the ExternalSecret back to klique — keep it
+# `klique`.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tenant-reconciler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tenant-secret-writer
+subjects:
+  - kind: ServiceAccount
+    name: tenant-reconciler
+    namespace: klique

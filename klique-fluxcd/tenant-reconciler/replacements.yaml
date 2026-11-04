@@ -1,0 +1,204 @@
+# Per-tenant names, derived from the tenant folder's `namespace:` line. Each
+# tenant folder references this file (`replacements: - path: ...`) instead of
+# carrying a copy, so a new tenant is a copied folder with one line changed.
+#
+# Folder-level, not component-level, on purpose: these must run AFTER the
+# folder's `namespace:` has renamed the Namespace and moved every object into
+# it.
+
+# The tenant name = the Namespace's name.
+- source:
+    kind: Namespace
+    fieldPath: metadata.name
+  targets:
+    # TENANT-reconcile -> <tenant>-reconcile
+    - select:
+        kind: Job
+        name: TENANT-reconcile
+      fieldPaths:
+        - metadata.name
+      options:
+        delimiter: "-"
+        index: 0
+    - select:
+        kind: Job
+        name: TENANT-reconcile
+      fieldPaths:
+        - spec.template.spec.containers.[name=reconcile].env.[name=TENANT].value
+    # tenant-config -> <tenant>-config (kustomize then adds the content hash).
+    # Every tenant's ConfigMap lands in klique, so the name must carry the
+    # tenant: the hash alone collides when two tenants' files are identical.
+    - select:
+        kind: ConfigMap
+        name: tenant-config
+      fieldPaths:
+        - metadata.name
+      options:
+        delimiter: "-"
+        index: 0
+    - select:
+        kind: Job
+        name: TENANT-reconcile
+      fieldPaths:
+        - spec.template.spec.volumes.[name=tenant-config].configMap.name
+      options:
+        delimiter: "-"
+        index: 0
+    # The folder's ExternalSecret, if it has one: tenant-sso -> <tenant>-sso
+    # (object and target Secret; it lands in klique, beside every other
+    # tenant's), and the Job's optional volume pointing at that Secret.
+    - select:
+        kind: ExternalSecret
+        name: tenant-sso
+      fieldPaths:
+        - metadata.name
+        - spec.target.name
+      options:
+        delimiter: "-"
+        index: 0
+    - select:
+        kind: Job
+        name: TENANT-reconcile
+      fieldPaths:
+        - spec.template.spec.volumes.[name=tenant-secrets].secret.secretName
+      options:
+        delimiter: "-"
+        index: 0
+    # klique/tenants/<anything>/sso -> klique/tenants/<tenant>/sso: the third
+    # path segment of every key in the ExternalSecret.
+    - select:
+        kind: ExternalSecret
+        name: tenant-sso
+      fieldPaths:
+        - spec.data.*.remoteRef.key
+      options:
+        delimiter: "/"
+        index: 2
+    # The tenant's orchestrator and gateway: TENANT-<chart> -> <tenant>-<chart>,
+    # installed into the tenant namespace, reading the tenant's own values
+    # files from <tenant>-config (kustomize then adds the hash, see
+    # valuesfrom-nameref.yaml).
+    - select:
+        kind: HelmRelease
+        name: TENANT-orchestrator
+      fieldPaths:
+        - metadata.name
+      options:
+        delimiter: "-"
+        index: 0
+    - select:
+        kind: HelmRelease
+        name: TENANT-orchestrator
+      fieldPaths:
+        - spec.targetNamespace
+        - spec.storageNamespace
+    - select:
+        kind: HelmRelease
+        name: TENANT-orchestrator
+      fieldPaths:
+        - spec.valuesFrom.[name=tenant-config].name
+      options:
+        delimiter: "-"
+        index: 0
+    - select:
+        kind: HelmRelease
+        name: TENANT-gateway
+      fieldPaths:
+        - metadata.name
+      options:
+        delimiter: "-"
+        index: 0
+    - select:
+        kind: HelmRelease
+        name: TENANT-gateway
+      fieldPaths:
+        - spec.targetNamespace
+        - spec.storageNamespace
+    - select:
+        kind: HelmRelease
+        name: TENANT-gateway
+      fieldPaths:
+        - spec.valuesFrom.[name=tenant-config].name
+      options:
+        delimiter: "-"
+        index: 0
+    # The gateway's host <tenant>.${KLIQUE_SESSIONS_HOST} (first label) and
+    # TLS Secret <tenant>-gateway-tls, and the Certificate that makes it.
+    - select:
+        kind: HelmRelease
+        name: TENANT-gateway
+      fieldPaths:
+        - spec.values.ingress.hostName
+      options:
+        delimiter: "."
+        index: 0
+    - select:
+        kind: HelmRelease
+        name: TENANT-gateway
+      fieldPaths:
+        - spec.values.ingress.tlsSecretName
+      options:
+        delimiter: "-"
+        index: 0
+    - select:
+        kind: Certificate
+        name: gateway
+      fieldPaths:
+        - spec.secretName
+      options:
+        delimiter: "-"
+        index: 0
+    - select:
+        kind: Certificate
+        name: gateway
+      fieldPaths:
+        - spec.dnsNames.0
+      options:
+        delimiter: "."
+        index: 0
+    # *.TENANT.… : the second label.
+    - select:
+        kind: Certificate
+        name: gateway
+      fieldPaths:
+        - spec.dnsNames.1
+      options:
+        delimiter: "."
+        index: 1
+
+# Back home to klique: the folder's `namespace:` moved the Job, its ConfigMap,
+# the ExternalSecret and the HelmReleases into the tenant namespace. The
+# RoleBinding's subject namespace is the one field that still says klique.
+# (The ExternalSecret must be in klique anyway: its SecretStore klique-secrets
+# is namespaced there. The HelmReleases install into the tenant namespace
+# through targetNamespace.)
+- source:
+    kind: RoleBinding
+    name: tenant-reconciler
+    fieldPath: subjects.0.namespace
+  targets:
+    - select:
+        kind: Job
+        name: TENANT-reconcile
+      fieldPaths:
+        - metadata.namespace
+    - select:
+        kind: ConfigMap
+        name: tenant-config
+      fieldPaths:
+        - metadata.namespace
+    - select:
+        kind: ExternalSecret
+        name: tenant-sso
+      fieldPaths:
+        - metadata.namespace
+    - select:
+        kind: HelmRelease
+        name: TENANT-orchestrator
+      fieldPaths:
+        - metadata.namespace
+    - select:
+        kind: HelmRelease
+        name: TENANT-gateway
+      fieldPaths:
+        - metadata.namespace

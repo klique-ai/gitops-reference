@@ -1,0 +1,22 @@
+# The rules each tenant namespace's RoleBinding (../rolebinding.yaml) grants.
+# A ClusterRole only so it is written once; it is never bound cluster-wide.
+#
+# Least privilege: read and update only the two Secrets the reconciler owns,
+# the tenant's minted keys; create cannot be limited by name (the API checks
+# it before the object has one). No list, update or delete. The IdP secrets
+# need no rule: they stay in klique and reach the Job as a mounted volume.
+#
+# trivy flags any ClusterRole touching Secrets (KSV-0041); the scoped
+# exception, with this reason, is in /.trivyignore.yaml.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tenant-secret-writer
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [orchestrator, app-gateway]
+    verbs: [get, patch]

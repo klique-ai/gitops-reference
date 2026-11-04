@@ -1,0 +1,66 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: klique
+
+# The klique namespace itself is NOT here: klique-terraform owns it (together
+# with the klique-platform ConfigMap inside it), so Flux prune and Terraform
+# never fight over the same object.
+resources:
+  - externalsecret-dockerhub.yaml
+  - externalsecret-apiserver.yaml
+  - externalsecret-users.yaml
+  - helmrepository.yaml
+  - helmrelease-control-plane.yaml
+  # The pull secret, copied into every tenant namespace (each tenant runs its
+  # own orchestrator and gateway, see ../tenant-reconciler/).
+  - secretstore-tenants.yaml
+  - clusterexternalsecret-dockerhub.yaml
+  # The tenant reconciler's ServiceAccount and ClusterRole: shared by every
+  # tenant, so here rather than in the per-tenant component.
+  - ../tenant-reconciler/rbac
+
+# Helm values, one plain-YAML file per chart, generated into a ConfigMap each
+# and referenced from the HelmReleases' valuesFrom. Plain files on purpose: they
+# can be diffed, linted and `helm template -f`'d on their own.
+#
+# control-plane: the content-hash suffix is KEPT. A hashed name changes only
+# when the file's content changes, so the HelmRelease's valuesFrom reference
+# changes with it and helm-controller reconciles on the event instead of
+# waiting out the interval. valuesfrom-nameref.yaml is the wiring that makes
+# the hash reach the HelmRelease — the two are a pair; removing either alone
+# breaks the release.
+#
+# orchestrator, gateway: NO hash. Their HelmReleases are per tenant, rendered by
+# a different Flux Kustomization (tenants), which cannot follow a hash
+# generated here. A fixed name plus the watch label does the same job:
+# helm-controller upgrades every release that reads a labelled ConfigMap as
+# soon as it changes.
+configMapGenerator:
+  - name: klique-values-control-plane
+    files:
+      - values.yaml=./values/control-plane.yaml
+    options:
+      labels:
+        klique.clearml.ai/values: control-plane
+
+  - name: klique-values-orchestrator
+    files:
+      - values.yaml=./values/orchestrator.yaml
+    options:
+      disableNameSuffixHash: true
+      labels:
+        klique.clearml.ai/values: orchestrator
+        reconcile.fluxcd.io/watch: Enabled
+
+  - name: klique-values-gateway
+    files:
+      - values.yaml=./values/gateway.yaml
+    options:
+      disableNameSuffixHash: true
+      labels:
+        klique.clearml.ai/values: gateway
+        reconcile.fluxcd.io/watch: Enabled
+
+configurations:
+  - valuesfrom-nameref.yaml

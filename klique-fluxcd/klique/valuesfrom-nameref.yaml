@@ -1,0 +1,14 @@
+# Kustomize transformer config, wired in from kustomization.yaml's
+# `configurations`.
+#
+# Kustomize ships no built-in nameReference rule for
+# HelmRelease.spec.valuesFrom, so without this file the content-hash suffix the
+# values ConfigMap generators produce would not be propagated into the
+# HelmRelease's reference — and the release would point at a ConfigMap that
+# does not exist, and go NotReady.
+nameReference:
+  - kind: ConfigMap
+    version: v1
+    fieldSpecs:
+      - path: spec/valuesFrom/name
+        kind: HelmRelease

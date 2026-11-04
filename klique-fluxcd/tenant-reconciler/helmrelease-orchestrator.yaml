@@ -1,0 +1,65 @@
+# The tenant's own orchestrator (k8s glue): runs that tenant's tasks as pods
+# in the tenant namespace and registers its queues, with the key the tenant's
+# Job minted (Secret orchestrator). Named <tenant>-orchestrator, in klique
+# like every HelmRelease here; installed INTO the tenant namespace.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: TENANT-orchestrator
+  namespace: klique
+spec:
+  # Fixed, not Flux's default <targetNamespace>-<name>: the chart's object
+  # names derive from it, and ../klique/values/orchestrator.yaml mounts the CA
+  # ConfigMap by its name (klique-orchestrator-custom-ca-0). Unique anyway:
+  # one release per tenant namespace.
+  releaseName: klique-orchestrator
+  # Both replaced with the tenant name. storageNamespace keeps the Helm
+  # release Secret beside the release, not in klique.
+  targetNamespace: TENANT
+  storageNamespace: TENANT
+  interval: 10m
+  timeout: 20m
+
+  chart:
+    spec:
+      chart: orchestrator
+      # Tracks the newest 1.x the registry serves — a publish upgrades every
+      # tenant's release within ~40 minutes, no commit. Pin an exact version to
+      # hold them.
+      version: "1.x.x"
+      sourceRef:
+        kind: HelmRepository
+        name: klique
+      interval: 30m
+
+  # The key Secret comes from the tenant's Job, which runs alongside: until it
+  # exists the glue pod waits (CreateContainerConfigError, retried).
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+
+  # Later wins. Maps merge; lists are replaced whole.
+  valuesFrom:
+    # 1. Cluster facts: the public URLs, the CA (klique-platform).
+    - kind: ConfigMap
+      name: klique-platform
+      valuesKey: orchestrator.yaml
+    # 2. Shared functional values from git (../klique/values/orchestrator.yaml):
+    #    credentials by name, queues, the task CA mount.
+    - kind: ConfigMap
+      name: klique-values-orchestrator
+      valuesKey: values.yaml
+    # 3. Partner overrides from tfvars (klique_values.orchestrator).
+    - kind: ConfigMap
+      name: klique-platform
+      valuesKey: orchestrator-overrides.yaml
+      optional: true
+    # 4. This tenant's own orchestrator-values.yaml, if its folder lists one
+    #    under configMapGenerator files:. A missing key is skipped.
+    - kind: ConfigMap
+      name: tenant-config
+      valuesKey: orchestrator-values.yaml
+      optional: true

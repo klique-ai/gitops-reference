@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Root of the path `flux bootstrap --path=./klique-fluxcd` points at. The
+# flux-system Kustomization renders THIS file.
+#
+# It must be explicit. Without a kustomization.yaml here, Flux generates one
+# that recursively includes every .yaml under this directory — which would sweep
+# up files that are not Kubernetes manifests and fail the reconcile.
+resources:
+  # Written by `flux bootstrap`; Flux reconciles its own version from git.
+  # Not present in a fresh clone — it appears after the first bootstrap.
+  - flux-system
+  - kustomizations

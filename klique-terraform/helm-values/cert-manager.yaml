@@ -1,0 +1,7 @@
+# Rendered by cert-manager.tf. Partner overrides go in cert_manager.extra_values.
+
+crds:
+  enabled: true
+  # Keep the CRDs on uninstall: deleting them deletes every Certificate and
+  # Issuer in the cluster, not just Klique's.
+  keep: true

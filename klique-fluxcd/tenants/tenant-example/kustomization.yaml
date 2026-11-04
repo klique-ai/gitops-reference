@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# THE tenant name: the Klique tenant, its namespace, its Job
+# (<tenant>-reconcile in klique) and its backend path
+# (klique/tenants/<tenant>/sso) all derive from this one line. The folder's
+# own name does not matter. To add a tenant, copy this folder and change it.
+namespace: tenant-example
+
+resources:
+  # IdP secrets (OIDC client secrets, SAML private keys), pointers only.
+  # Optional: a tenant without any deletes this line and the file.
+  - externalsecret-sso.yaml
+
+# Namespace, Job, RoleBinding (and the script). See ../../tenant-reconciler/.
+components:
+  - ../../tenant-reconciler
+
+# The tenant's files, in one ConfigMap: the Job reads them at /tenant, and the
+# tenant's orchestrator and gateway read their optional values files from it.
+# List every file tenant.json refers to (each SAML provider's
+# idpMetadataFile) — a file left out of this list is not in the Job, and
+# scripts/check.sh fails on it. Optionally also orchestrator-values.yaml and
+# gateway-values.yaml (exactly these names; see ../README.md).
+configMapGenerator:
+  - name: tenant-config
+    files:
+      - tenant.json
+      - idp-metadata.xml
+
+# Shared, not copied: renames the component's objects after `namespace:`.
+replacements:
+  - path: ../../tenant-reconciler/replacements.yaml

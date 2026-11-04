@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Shared by every tenant, so NOT part of the component (one copy per tenant
+# would collide): listed from ../../klique/kustomization.yaml instead, which
+# also guarantees it exists before the tenants Kustomization (dependsOn
+# klique) creates the first Job.
+resources:
+  - serviceaccount.yaml
+  - clusterrole.yaml

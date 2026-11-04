@@ -1,0 +1,20 @@
+extends: default
+
+# Terraform templates carry ${...} / %{...} directives that are not YAML until rendered;
+# traefik.yaml is the only helm-values file that goes through templatefile().
+ignore: |
+  .claude/
+  .terraform/
+  klique-terraform/manifests/
+  klique-terraform/klique-values/
+  klique-terraform/helm-values/traefik.yaml
+
+rules:
+  # Manifests lead with a header comment explaining the file; a "---" before it would be noise in
+  # every single-document file.
+  document-start: disable
+  # Comments here explain why and run past 80 columns; 100 keeps them readable on a normal diff
+  # view. Long URLs and similar unbreakable tokens are allowed to overflow.
+  line-length:
+    max: 100
+    allow-non-breakable-words: true

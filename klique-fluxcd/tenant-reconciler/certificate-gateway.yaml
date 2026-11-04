@@ -1,0 +1,21 @@
+# The tenant gateway's TLS certificate, in the tenant namespace (beside the
+# gateway's Ingress). Two names, because the gateway serves the tenant's
+# running apps on *.<its host> and a TLS wildcard covers exactly one label:
+# *.<sessions host> does not cover *.<tenant>.<sessions host>.
+#
+# The issuer must be a cert-manager ClusterIssuer (a namespaced Issuer in
+# klique cannot sign in a tenant namespace) that can issue wildcards (with
+# ACME, that means a DNS-01 solver). Both come from klique-platform-vars.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: gateway
+spec:
+  secretName: TENANT-gateway-tls
+  dnsNames:
+    - TENANT.${KLIQUE_SESSIONS_HOST}
+    - "*.TENANT.${KLIQUE_SESSIONS_HOST}"
+  issuerRef:
+    group: cert-manager.io
+    kind: ${KLIQUE_ISSUER_KIND}
+    name: ${KLIQUE_ISSUER_NAME}

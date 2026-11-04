@@ -1,0 +1,25 @@
+# klique-platform / gateway.yaml — rendered by klique-terraform
+# (platform-handoff.tf). Do not edit in the cluster: change the tfvars and
+# re-apply.
+
+controlPlane:
+  # The gateway validates every request against the apiserver; sslVerify only
+  # does something over https, so this must be the public hostname.
+  apiServerUrlReference: "https://${api_host}"
+
+ingress:
+  enabled: true
+  ingressClassName: ${ingress_class}
+  # hostName, tlsSecretName and externalURL are per tenant: each tenant's
+  # gateway HelmRelease (klique-fluxcd/tenants) sets them.
+  annotations: ${ingress_annotations}
+
+%{ if trust_ca_pem != "" ~}
+
+# The private root the certificates chain to. OWNED HERE (Helm replaces lists).
+customCertificates:
+  extraCerts:
+    - alias: klique-root-ca
+      pem: |
+        ${indent(8, trust_ca_pem)}
+%{ endif ~}
