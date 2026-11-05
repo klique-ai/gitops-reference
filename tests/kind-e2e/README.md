@@ -41,8 +41,23 @@ directory (see [Safety rails](#safety-rails)), and `down` deletes them.
 
 ## Requirements
 
-- Linux with Docker. cloud-provider-kind gives LoadBalancer IPs on the
-  `kind` Docker network, which only a Linux host reaches directly.
+- Linux with Docker, or macOS (Intel or Apple Silicon) with Docker Desktop.
+  The scripts run on macOS's stock bash 3.2 and BSD tools. cloud-provider-kind
+  gives LoadBalancer IPs on the `kind` Docker network, which a Linux host
+  reaches directly. On macOS it cannot, so cloud-provider-kind runs in its
+  tunnel mode instead: it adds each LoadBalancer IP to the `lo0` loopback
+  interface and forwards to the container, and that needs root.
+  `e2e.sh` therefore asks for your `sudo` password at the start (so a missing
+  sudo fails early) and again just before it starts cloud-provider-kind, which
+  runs as root; `down` stops it with `sudo kill` and may ask once more, as may
+  the end of `all`. The root process reaches Docker through Docker Desktop's
+  default socket, `/var/run/docker.sock`: turn on "Allow the default Docker
+  socket to be used" in Docker Desktop's Advanced settings if it is off. The
+  Docker network's address range can overlap a VPN's routes; if the
+  LoadBalancer IPs do not answer while a VPN is connected, disconnect it.
+- On macOS, `scripts/install-tools.sh` needs `python3` 3.10 or newer for
+  yamllint; the Command Line Tools' 3.9 is too old, so run
+  `brew install python3` first.
 - `kind` v0.33.0, which the pinned node image belongs to; for another release,
   set `KIND_NODE_IMAGE`. Also Terraform 1.10 or newer (klique-terraform's
   minimum), `kubectl`, `docker`, `git`, `curl`, `jq`, and `openssl`.
@@ -57,6 +72,8 @@ directory (see [Safety rails](#safety-rails)), and `down` deletes them.
   repositories. Your DNS resolver must answer `*.nip.io` names with private
   IPs: some routers drop them as DNS rebinding protection.
 - Enough memory for a single-node cluster that runs MongoDB and Elasticsearch.
+  On macOS that is Docker Desktop's VM memory (Settings, Resources): raise it
+  if pods are OOM-killed.
 
 ## Credentials
 
@@ -167,7 +184,8 @@ to 15 more for the task check (`T_TASK_SECONDS`).
    work directory) and gives Traefik's LoadBalancer Service an IP, so the
    nip.io quickstart works unchanged. Its own ingress and Gateway API features
    are off. Note that it serves *every* kind cluster on the machine while it
-   runs.
+   runs. On macOS it runs as root through `sudo`, as described under
+   Requirements.
 4. **OpenBao**: the official chart `openbao` 0.30.6 from
    `https://openbao.github.io/openbao-helm`, which runs image 2.7.2, with
    [`openbao-values.yaml`](openbao-values.yaml). It runs in dev mode, in
@@ -212,7 +230,8 @@ checks cover the control plane. It then waits for:
 It prints `flux get kustomizations -A` and `flux get helmreleases -A`, fails
 on any row that is not Ready, and probes `debug.ping`. An informational check
 then tries the default company's admin login through `auth.login`; it does not
-decide pass or fail. Then come the tenants check and the task check.
+decide pass or fail. Then come the tenants check (which ends with the
+Platform Management Center check) and the task check.
 
 ## The task check
 
@@ -355,6 +374,23 @@ The check:
 
    Registration runs on an interval, so the check polls for up to
    `T_GATEWAY_SECONDS` (default 300).
+7. The Platform Management Center, in three separate steps (`pmc_check` in
+   `lib-sso.sh`):
+   - `https://pmc.<domain>` answers HTTP 200, verified against the minted CA;
+   - `login.sso_authorize` through the PMC's proxy returns Keycloak's
+     `klique-pmc` realm authorize URL for client `klique-pmc` (redirect URI
+     under `https://pmc.<domain>/callback_`), and that URL serves the realm's
+     login form;
+   - a scripted login as the realm's `pmc-admin` ends in a session token
+     (never printed).
+
+   The last two steps assume the Platform Management server's login API
+   matches the apiserver's (`login.sso_authorize`, `login.sso_callback`,
+   provider `keycloak`). Because the server's NetworkPolicy admits only the
+   PMC proxy and the tenant-reconciler Jobs, the whole of `verify` also
+   proves both still reach it. kind's default CNI, kindnet, has enforced
+   NetworkPolicy since kind 0.24 (the harness uses kind v0.33), so the policy
+   is live in the harness.
 
 Each login is the browser's request sequence:
 
@@ -369,8 +405,8 @@ The cookie jar lives in the work directory only for one login, or for one
 login-and-logout check (login, logout, confirmation, re-authorize).
 The session token is never printed.
 
-`tests/kind-e2e/e2e.sh tenants` reruns only this check on a cluster that is
-up. It adds several minutes:
+`tests/kind-e2e/e2e.sh tenants` reruns only this check, and the Platform
+Management Center check after it, on a cluster that is up. It adds several minutes:
 
 - pulling and starting Keycloak, about 1–2 minutes;
 - the tenant Jobs, about 1;
@@ -424,12 +460,13 @@ up. It adds several minutes:
 | `KLIQUE_E2E_REPO_URL` | `https://github.com/klique-ai/gitops-reference` | what Flux clones; must be `https://github.com/<owner>/<repo>` |
 | `KLIQUE_E2E_GIT_REMOTE` | `origin` | the local remote `--ref` is checked against |
 | `KIND_NODE_IMAGE` | `kindest/node:v1.37.0@sha256:a1ed…` | kind v0.33.0's default; other kind releases need their own |
-| `T_TERRAFORM`, `T_BASE`, `T_KLIQUE` | `15m`, `5m`, `40m` | step timeouts |
+| `T_TERRAFORM` | `15m` | `terraform apply` timeout: an integer, optionally followed by `s`, `m` or `h` |
+| `T_BASE`, `T_KLIQUE` | `5m`, `40m` | step timeouts, passed to kubectl and helm (any Go duration, e.g. `90s`, `1h30m`) |
 | `T_PROBE_SECONDS` | `300` | how long `debug.ping` is retried |
 | `T_TASK_SECONDS` | `900` | how long the task check waits for `completed` |
 | `T_TENANTS` | `30m` | how long `verify` waits for the `tenants` and `e2e-tenants` Kustomizations |
 | `T_PULL_SECRET_SECONDS` | `600` | how long `verify` waits for `klique-dockerhub` in each tenant namespace |
-| `T_GATEWAY_SECONDS` | `300` | how long the gateway check waits for an answer and for the gateway's registration |
+| `T_GATEWAY_SECONDS` | `300` | how long the gateway check waits for an answer and for the gateway's registration, and the Platform Management Center check for the UI's answer |
 | `KEEP` | `0` | `1`: `all` does not tear down |
 
 ## Troubleshooting

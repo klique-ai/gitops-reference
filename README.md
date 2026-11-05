@@ -119,8 +119,8 @@ run and safe to change:
 ```
 klique-terraform/ cluster prerequisites + the klique-platform handoff (Terraform)
 klique-fluxcd/    Flux + ESO: the control plane and the tenants (each with its own orchestrator and gateway)
-scripts/          maintainer tooling; scripts/install-tools.sh installs the pinned check and lint tools,
-                  scripts/check.sh runs every repo check
+scripts/          maintainer tooling; scripts/install-tools.sh installs the pinned check and lint tools
+                  (macOS needs python3 3.10 or newer: brew install python3), scripts/check.sh runs every repo check
 tests/            maintainer tooling; tests/kind-e2e/ is the end-to-end harness on kind
 ```
 

@@ -78,6 +78,73 @@ seed_pmc_sso_entry() { # <domain>
   info "wrote kv/klique/platform-management/sso (realm klique-pmc)"
 }
 
+# --- Platform Management Center ------------------------------------------------
+
+# The PMC's login through its ingress and proxy to the Platform Management
+# server and Keycloak's klique-pmc realm. Three steps, each its own function so
+# a step can be dropped without touching the others: the UI answers, the login
+# starts and reaches the realm, and a scripted login ends in a session token.
+# The last two assume the Platform Management server's login API is the
+# apiserver's (login.sso_authorize / login.sso_callback, provider `keycloak`,
+# the oauth_client key in values/control-plane.yaml); nothing else asserts
+# that, so a failure there names the step.
+readonly PMC_PROVIDER=keycloak PMC_CALLBACK=keycloak PMC_USER=pmc-admin
+
+pmc_check() {
+  local host="pmc.$KLIQUE_DOMAIN"
+  pmc_ui_check "$host"
+  pmc_authorize_check "$host"
+  pmc_login_check "$host"
+}
+
+# Step 1: the UI answers 200 over verified TLS (ingress, certificate, webserver pod).
+pmc_ui_check() { # <host>
+  local url="https://$1" code deadline
+  log "Platform Management Center: $url (up to ${T_GATEWAY_SECONDS}s)"
+  deadline=$((SECONDS + T_GATEWAY_SECONDS))
+  until code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 --cacert "$W/klique-ca.pem" "$url/" 2>/dev/null)" &&
+    [[ $code == 200 ]]; do
+    ((SECONDS < deadline)) || die "$url did not answer 200 over verified TLS within ${T_GATEWAY_SECONDS}s (last HTTP ${code:-none})"
+    sleep 5
+  done
+  info "answers: HTTP $code"
+}
+
+# Step 2: login.sso_authorize through the proxy returns Keycloak's klique-pmc
+# authorize URL for client klique-pmc, and that URL serves the realm's login form.
+pmc_authorize_check() { # <host>
+  local host=$1 resp redirect args html
+  log "Platform Management Center: login starts at the klique-pmc realm"
+  resp="$(P="$PMC_PROVIDER" C="https://$host/callback_" jq -n \
+    '{provider: env.P, callback_url_prefix: env.C, state: "kind-e2e"}' |
+    curl -sS --max-time 30 --cacert "$W/klique-ca.pem" -X POST -H 'Content-Type: application/json' \
+      --data-binary @- "https://$host/api/login.sso_authorize")" ||
+    die "pmc login.sso_authorize: request failed"
+  redirect="$(jq -er '.data.redirect_url' <<<"$resp" 2>/dev/null)" ||
+    die "pmc login.sso_authorize returned no redirect_url ($(api_reason <<<"$resp"))"
+  [[ $redirect == "https://keycloak.$KLIQUE_DOMAIN/realms/klique-pmc/protocol/openid-connect/auth?"* ]] ||
+    die "pmc login.sso_authorize redirects to an unexpected URL: ${redirect%%\?*}"
+  args="$(query_json "$redirect")"
+  [[ $(jq -r '.client_id' <<<"$args") == klique-pmc ]] || die "pmc login: the authorize URL names client $(jq -r '.client_id' <<<"$args")"
+  [[ $(jq -r '.redirect_uri' <<<"$args") == "https://$host/callback_"* ]] ||
+    die "pmc login: the authorize URL's redirect_uri is not under https://$host/callback_"
+  html="$(curl -sS --max-time 30 --cacert "$W/klique-ca.pem" "$redirect")" ||
+    die "pmc login: Keycloak's klique-pmc login page did not load"
+  [[ -n $(kc_login_action <<<"$html") ]] || die "pmc login: no Keycloak login form at the klique-pmc authorize URL"
+  info "the PMC's login reaches Keycloak's klique-pmc realm"
+}
+
+# Step 3: a scripted login as the realm's admin ends in a session token. The
+# password and the token stay in variables, never on a command line or in output.
+pmc_login_check() { # <host>
+  local resp token
+  log "Platform Management Center: login as $PMC_USER"
+  resp="$(SSO_APP="https://$1" sso_login "$PMC_PROVIDER" "" "$PMC_CALLBACK" "$PMC_USER" "$(pmc_secret pw_pmc_admin)")" || exit 1
+  token="$(jq -er '.data.token' <<<"$resp")" || die "pmc login: no session token in the callback response ($(api_reason <<<"$resp"))"
+  [[ $token =~ ^[A-Za-z0-9._-]+$ ]] || die "pmc login: unexpected characters in the session token (not shown)"
+  info "login as $PMC_USER returned a session token (not shown)"
+}
+
 # --- Keycloak -----------------------------------------------------------------
 
 # Prints the Keycloak realm signing certificate (one base64 line) from a SAML
@@ -157,8 +224,17 @@ sso_curl() { curl -sS --max-time 30 --cacert "$W/klique-ca.pem" -b "$SSO_JAR" -c
 # stdin -> application/x-www-form-urlencoded value.
 urlencode() { jq -sRj @uri; }
 urldecode() {
-  local s="${1//+/ }"
-  printf '%b' "${s//%/\\x}"
+  # One %XX at a time through printf's own \x escape, instead of building a
+  # format string with ${s//%/\\x}: plain constructs, easy to reason about on any bash.
+  local s="${1//+/ }" out="" hex
+  while [[ $s == *%* ]]; do
+    out+="${s%%\%*}"
+    s="${s#*%}"
+    printf -v hex '%b' "\\x${s:0:2}"
+    out+="$hex"
+    s="${s:2}"
+  done
+  printf '%s' "$out$s"
 }
 
 # <url> -> JSON object of its query parameters, decoded.
@@ -167,7 +243,7 @@ query_json() {
   [[ $1 == *\?* ]] || q=""
   q="${q%%#*}"
   IFS='&' read -ra parts <<<"$q"
-  for kv in "${parts[@]}"; do
+  for kv in ${parts[@]+"${parts[@]}"}; do
     [[ -n $kv ]] || continue
     if [[ $kv == *=* ]]; then
       printf '%s\t%s\n' "$(urldecode "${kv%%=*}")" "$(urldecode "${kv#*=}")"
@@ -193,10 +269,10 @@ kc_login_error() {
 # An auto-submitting HTML form on stdin (Keycloak's SAML POST binding page) ->
 # its action, or (with a name) the value of that hidden input.
 html_form_action() {
-  grep -io '<form[^>]*>' | head -1 | grep -io 'action="[^"]*"' | sed -e 's/^action="//I' -e 's/"$//' -e 's/&amp;/\&/g'
+  grep -io '<form[^>]*>' | head -1 | grep -io 'action="[^"]*"' | sed -e 's/^[^=]*="//' -e 's/"$//' -e 's/&amp;/\&/g'
 }
 html_input_value() { # <name>
-  grep -io "<input[^>]*name=\"$1\"[^>]*>" | head -1 | grep -io 'value="[^"]*"' | sed -e 's/^value="//I' -e 's/"$//'
+  grep -io "<input[^>]*name=\"$1\"[^>]*>" | head -1 | grep -io 'value="[^"]*"' | sed -e 's/^[^=]*="//' -e 's/"$//'
 }
 
 # The body of a curl -w "$SSO_MARK..." response, and the trailer after it.
@@ -220,7 +296,8 @@ sso_trailer() { printf '%s' "${1##*"$SSO_MARK"}"; }
 # jar however the login ends, die included, and never touches the caller's traps.
 sso_login() (
   local provider=$1 tenant=$2 cb_name=$3 user=$4 pass=$5 claim=${6:-}
-  local app="https://app.$KLIQUE_DOMAIN" resp redirect html action out code loc args cb acs saml relay
+  # SSO_APP: the host whose login API is driven; the Platform Management Center's, for pmc_login_check.
+  local app="${SSO_APP:-https://app.$KLIQUE_DOMAIN}" resp redirect html action out code loc args cb acs saml relay
   if [[ -n ${SSO_KEEP_JAR:-} ]]; then
     # The caller owns this jar (and removes it): the logout check needs the
     # Keycloak session cookie after the login ends.
@@ -232,8 +309,9 @@ sso_login() (
   fi
   cb="$app/callback_$cb_name"
 
+  # No tenant for the Platform Management Center's login: its server has none.
   resp="$(P="$provider" T="$tenant" C="$app/callback_" jq -n \
-    '{provider: env.P, tenant: env.T, callback_url_prefix: env.C, state: "kind-e2e"}' |
+    '{provider: env.P, callback_url_prefix: env.C, state: "kind-e2e"} + (if env.T != "" then {tenant: env.T} else {} end)' |
     sso_curl -X POST -H 'Content-Type: application/json' --data-binary @- "$app/api/login.sso_authorize")" ||
     die "login.sso_authorize: request failed"
   if ! redirect="$(jq -er '.data.redirect_url' <<<"$resp" 2>/dev/null)"; then
@@ -385,12 +463,14 @@ tenants_check() {
 
   k -n klique wait --for=condition=Ready kustomization/e2e-tenants --timeout="$T_TENANTS"
 
-  PM_KEY="$(k -n klique get secret klique-conf -o jsonpath='{.data.platform_management_key}' | base64 -d)"
-  PM_SECRET="$(k -n klique get secret klique-conf -o jsonpath='{.data.platform_management_secret}' | base64 -d)"
+  # go-template's base64decode: base64 -d is -D on macOS before 13. `with` makes a missing key or
+  # missing .data an empty value, not a template error (kubectl prints the whole Secret on one).
+  PM_KEY="$(k -n klique get secret klique-conf -o go-template='{{with .data}}{{with index . "platform_management_key"}}{{base64decode .}}{{end}}{{end}}')"
+  PM_SECRET="$(k -n klique get secret klique-conf -o go-template='{{with .data}}{{with index . "platform_management_secret"}}{{base64decode .}}{{end}}{{end}}')"
   [[ -n $PM_KEY && -n $PM_SECRET && $PM_KEY$PM_SECRET =~ ^[A-Za-z0-9._-]+$ ]] ||
     die "klique-conf has no usable platform_management_key/secret"
-  SYS_KEY="$(k -n klique get secret klique-conf -o jsonpath='{.data.apiserver_key}' | base64 -d)"
-  SYS_SECRET="$(k -n klique get secret klique-conf -o jsonpath='{.data.apiserver_secret}' | base64 -d)"
+  SYS_KEY="$(k -n klique get secret klique-conf -o go-template='{{with .data}}{{with index . "apiserver_key"}}{{base64decode .}}{{end}}{{end}}')"
+  SYS_SECRET="$(k -n klique get secret klique-conf -o go-template='{{with .data}}{{with index . "apiserver_secret"}}{{base64decode .}}{{end}}{{end}}')"
   [[ -n $SYS_KEY && -n $SYS_SECRET && $SYS_KEY$SYS_SECRET =~ ^[A-Za-z0-9._-]+$ ]] ||
     die "klique-conf has no usable apiserver_key/secret"
 
@@ -451,7 +531,7 @@ tenants_check() {
 # An HTML page on stdin -> its <title>, or its data-page-id: what a failure
 # message may show of a Keycloak page (never its cookies or form values).
 html_page_label() {
-  tr -s '\n\r\t' '   ' | { grep -o '<title>[^<]*</title>\|data-page-id="[^"]*"' || true; } | head -2 | tr '\n' ' '
+  tr -s '\n\r\t' '   ' | { grep -oE '<title>[^<]*</title>|data-page-id="[^"]*"' || true; } | head -2 | tr '\n' ' '
 }
 
 # A Keycloak form page on stdin -> its hidden inputs (session_code...) as a
@@ -460,8 +540,8 @@ html_page_label() {
 html_hidden_form_body() {
   local tag name value out=""
   while IFS= read -r tag; do
-    name="$(grep -io 'name="[^"]*"' <<<"$tag" | head -1 | sed -e 's/^name="//I' -e 's/"$//')"
-    value="$(grep -io 'value="[^"]*"' <<<"$tag" | head -1 | sed -e 's/^value="//I' -e 's/"$//' -e 's/&amp;/\&/g')"
+    name="$(grep -io 'name="[^"]*"' <<<"$tag" | head -1 | sed -e 's/^[^=]*="//' -e 's/"$//')"
+    value="$(grep -io 'value="[^"]*"' <<<"$tag" | head -1 | sed -e 's/^[^=]*="//' -e 's/"$//' -e 's/&amp;/\&/g')"
     [[ -n $name ]] || continue
     out+="${out:+&}$(printf '%s' "$name" | urlencode)=$(printf '%s' "$value" | urlencode)"
   done < <(grep -io '<input[^>]*type="hidden"[^>]*>')
@@ -626,8 +706,9 @@ has_router_url() { # <url>
   return 1
 }
 
-# `openssl x509 -ext subjectAltName` output on stdin -> its DNS names, one per line.
-san_dns_names() { grep -o 'DNS:[^,[:space:]]*' | sed 's/^DNS://'; }
+# `openssl x509 -text` output on stdin -> its DNS names, one per line.
+# -text, not -ext: LibreSSL (macOS) has no -ext. The SAN list is the line after its header.
+san_dns_names() { sed -n '/X509v3 Subject Alternative Name/{n;p;}' | grep -o 'DNS:[^,[:space:]]*' | sed 's/^DNS://'; }
 
 # routers.get_task_routers with a session token -> the response.
 routers_list() { # <token>
@@ -658,7 +739,7 @@ gateway_check() { # <tenant-e2e admin password> <tenant-e2e-b user password>
   info "answers: HTTP $code, certificate valid for $host"
 
   names="$(openssl s_client -connect "$host:443" -servername "$host" </dev/null 2>/dev/null |
-    openssl x509 -noout -ext subjectAltName 2>/dev/null | san_dns_names)" ||
+    openssl x509 -noout -text 2>/dev/null | san_dns_names)" ||
     die "could not read the certificate $host serves"
   grep -qxF "$host" <<<"$names" || die "$host's certificate does not name $host (has: $(tr '\n' ' ' <<<"$names"))"
   grep -qxF "*.$host" <<<"$names" || die "$host's certificate does not name *.$host (has: $(tr '\n' ' ' <<<"$names"))"

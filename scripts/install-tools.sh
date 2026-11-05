@@ -137,6 +137,11 @@ fi
 if have_version yamllint "$YAMLLINT_VERSION" --version; then
   echo "ok       yamllint $YAMLLINT_VERSION (already installed)"
 else
+  # yamllint 1.38 needs Python >= 3.10; macOS's Command Line Tools python3 is 3.9.
+  python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' || {
+    echo "yamllint $YAMLLINT_VERSION needs python3 >= 3.10 (macOS: brew install python3, then re-run)" >&2
+    exit 1
+  }
   python3 -c 'import venv, ensurepip' 2>/dev/null || {
     echo "python3 venv support is missing (Debian/Ubuntu: apt install python3-venv)" >&2
     exit 1

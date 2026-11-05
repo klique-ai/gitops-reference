@@ -32,7 +32,14 @@ for this, with tenant login on: each tenant signs in at
 the default company it signs in to has no orchestrator: tasks run in tenants.
 
 The Platform Management Center UI reaches that server through its own proxy,
-inside the cluster; only the UI has an ingress.
+inside the cluster; only the UI has an ingress. A NetworkPolicy
+(`platformManagementServer.networkPolicy` in
+[`klique/values/control-plane.yaml`](klique/values/control-plane.yaml)) admits
+only two callers to the server, on its port: that proxy and the tenant
+reconciler's Jobs (labelled `app.kubernetes.io/name: tenant-reconciler`).
+Another caller is one more entry in that `from` list. It is enforced only if
+your cluster's CNI enforces NetworkPolicy; the proxy's label follows the
+`platform-management-center` release name.
 
 Deliberately not included: monitoring,
 provisioning ClearML applications from git. All can be added later; none are

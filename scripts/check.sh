@@ -103,7 +103,8 @@ tenants_layout() {
 # Python with PyYAML: the one yamllint runs on (scripts/install-tools.sh puts it in a venv).
 yaml_python() {
   local yl
-  yl="$(readlink -f "$(command -v yamllint)")" && sed -n '1s/^#!//p' "$yl"
+  # sed follows the symlink itself; readlink -f is missing on macOS before 12.3.
+  yl="$(command -v yamllint)" && sed -n '1s/^#!//p' "$yl"
 }
 
 # Renders each tenant tree exactly as Flux will and checks the wiring replacements.yaml produces
@@ -401,14 +402,15 @@ reconciler_no_substitution() {
 # The same validation the Job runs first, on each tenant's rendered files: a field it rejects
 # fails here, before a commit, naming the tenant's folder and the field.
 tenants_validate() {
-  local tenant folder d out rc=0
+  local tenant folder d out rep rc=0
   [[ -s "$tmp/tenants/folders" ]] || { echo "nothing rendered (see tenants render)" >&2; return 1; }
   while IFS=$'\t' read -r tenant folder; do
     d="$tmp/tenants/$tenant/"
     echo "--- $folder (tenant $tenant)"
     out="$(python3 -B "$reconciler/reconcile.py" --validate "${d}tenant.json" --tenant "$tenant" 2>&1)" ||
       rc=1
-    echo "${out//"$d"/"$folder/"}"
+    rep="$folder/" # in a variable: bash <= 4.2 keeps quotes in a quoted replacement
+    echo "${out//"$d"/$rep}"
   done <"$tmp/tenants/folders"
   return "$rc"
 }
@@ -452,6 +454,7 @@ run "trivy" trivy_scan
 
 echo
 echo "=== Summary"
-for n in "${passed[@]}"; do echo "PASS  $n"; done
-for n in "${failed[@]}"; do echo "FAIL  $n"; done
+# ${a[@]+...}: an empty array under set -u is an unbound variable in bash < 4.4 (macOS ships 3.2).
+for n in ${passed[@]+"${passed[@]}"}; do echo "PASS  $n"; done
+for n in ${failed[@]+"${failed[@]}"}; do echo "FAIL  $n"; done
 [[ ${#failed[@]} -eq 0 ]]

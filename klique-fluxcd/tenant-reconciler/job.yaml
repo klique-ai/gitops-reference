@@ -24,6 +24,11 @@ spec:
   # Kustomization with the Job's own error rather than a timeout.
   activeDeadlineSeconds: 1200
   template:
+    metadata:
+      labels:
+        # What the Platform Management server's NetworkPolicy admits (see
+        # ../klique/values/control-plane.yaml): its Job pods carry no other stable label.
+        app.kubernetes.io/name: tenant-reconciler
     spec:
       serviceAccountName: tenant-reconciler
       restartPolicy: Never

@@ -38,7 +38,9 @@ GITHUB_TOKEN_FILE="$CRED_DIR/github-token.env"
 
 # Everything a run creates on the host: kubeconfig, Terraform copy + state (holds
 # the quickstart CA key), cloud-provider-kind pid and log. Removed by `down`.
-W="${KLIQUE_E2E_DIR:-${TMPDIR:-/tmp}/klique-e2e-$(id -u)}"
+# macOS TMPDIR ends in a slash; stripped so $W reads cleanly in paths and messages.
+W="${KLIQUE_E2E_DIR:-${TMPDIR:-/tmp}}"
+[[ -n ${KLIQUE_E2E_DIR:-} ]] || W="${W%/}/klique-e2e-$(id -u)"
 # Made absolute against the directory you run from: terraform -chdir and the
 # generated tfvars would otherwise resolve a relative path somewhere else.
 [[ $W == /* ]] || W="$PWD/$W"
@@ -89,6 +91,54 @@ require_tools() {
   ((${#missing[@]} == 0)) || die "missing tools: ${missing[*]} (scripts/install-tools.sh installs flux and cloud-provider-kind)"
 }
 
+# timeout(1) is not on macOS. Same contract as GNU's for what the harness uses:
+# runs <cmd...>, stops it with TERM after <duration> (a number of seconds, or
+# with an s, m or h suffix like T_TERRAFORM; KILL 10 s later if it ignores TERM)
+# and returns 124; otherwise returns the command's own status. Polling once a
+# second instead of a watcher subshell leaves no orphaned sleep behind.
+timeout_run() { # <duration> <cmd...>
+  local secs=$1 pid deadline rc killed=0 interrupted=0 grace=0 saved
+  shift
+  [[ $secs =~ ^[0-9]+[smh]?$ ]] || die "invalid duration '$secs' (an integer, optionally followed by s, m or h)"
+  case $secs in
+    *h) secs=$((${secs%h} * 3600)) ;;
+    *m) secs=$((${secs%m} * 60)) ;;
+    *s) secs=${secs%s} ;;
+  esac
+  "$@" &
+  pid=$!
+  # Ctrl-C reaches the command itself (same foreground process group), and a Go
+  # tool such as terraform treats a second signal as "exit now, lose state", so
+  # the trap only records it: the command gets 10 s to wind down on its own
+  # before TERM. Without a trap, bash would exit at once and leave it running.
+  saved="$(trap -p INT TERM)"
+  trap 'interrupted=1' INT TERM
+  deadline=$((SECONDS + secs))
+  while kill -0 "$pid" 2>/dev/null; do
+    if ((interrupted && !grace)); then
+      grace=1
+      ((killed)) || deadline=$((SECONDS + 10))
+    fi
+    if ((killed == 0 && SECONDS >= deadline)); then
+      kill -TERM "$pid" 2>/dev/null || : # it may have just exited
+      killed=1
+      deadline=$((SECONDS + 10))
+    elif ((killed == 1 && SECONDS >= deadline)); then
+      kill -KILL "$pid" 2>/dev/null || :
+      killed=2
+    fi
+    # A signal ends sleep early with a failure status, which errexit must not see.
+    sleep 1 || :
+  done
+  rc=0
+  wait "$pid" || rc=$?
+  trap - INT TERM
+  [[ -z $saved ]] || eval "$saved"
+  ((interrupted == 0)) || return 130
+  ((killed == 0)) || return 124
+  return "$rc"
+}
+
 cluster_exists() {
   kind get clusters 2>/dev/null | grep -qx "$CLUSTER"
 }
@@ -131,6 +181,10 @@ check_private_file() { # <path> <what it is>
   owner="$(stat -c '%u' "$f" 2>/dev/null || stat -f '%u' "$f")"
   [[ $owner == "$(id -u)" ]] || die "$f must be owned by you"
   [[ $mode == 600 || $mode == 400 ]] || die "$f has mode $mode; run: chmod 600 $f"
+  # An ACL (a trailing + in ls -l) can grant others access that the mode does not show.
+  local perms
+  perms="$(ls -ld "$f")"
+  [[ ${perms%% *} != *+ ]] || die "$f has an ACL; remove it (macOS: chmod -N $f)"
 }
 
 # load_kv_env <file> <key>...: parses the listed KEYs from <file> into shell
@@ -222,6 +276,6 @@ bao() {
   # The single quotes are deliberate: $VAULT_DEV_ROOT_TOKEN_ID and "$@" expand
   # inside the pod.
   # shellcheck disable=SC2016
-  k -n openbao exec "${i[@]}" openbao-0 -c openbao -- sh -c \
+  k -n openbao exec ${i[@]+"${i[@]}"} openbao-0 -c openbao -- sh -c \
     'BAO_TOKEN="$VAULT_DEV_ROOT_TOKEN_ID" exec bao "$@"' bao "$@"
 }

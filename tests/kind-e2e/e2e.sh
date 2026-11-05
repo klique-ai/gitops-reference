@@ -31,7 +31,9 @@ Commands:
            tenants exist with their key Secrets and providers, OIDC and SAML
            logins through Keycloak land with the right role, an OIDC logout
            ends the Keycloak session, and
-           tenant-e2e's gateway answers on its own host and registered itself
+           tenant-e2e's gateway answers on its own host and registered itself,
+           and the Platform Management Center answers and its login reaches
+           the klique-pmc realm
   down     delete the cluster, its load-balancer containers and $W
            (safe to run when nothing is up)
 
@@ -130,7 +132,12 @@ write_tfvars() {
 }
 
 preflight() {
-  require_tools kind kubectl helm terraform flux cloud-provider-kind docker git curl jq openssl timeout
+  require_tools kind kubectl helm terraform flux cloud-provider-kind docker git curl jq openssl
+  # Early, so a Mac user without sudo fails now rather than after `kind create`;
+  # start_cloud_provider_kind asks again right before it needs root.
+  if ((${#CPK_SUDO[@]})); then
+    sudo -v || die "sudo is needed on macOS: cloud-provider-kind runs as root there (see tests/kind-e2e/README.md)"
+  fi
   check_private_file "$DOCKERHUB_ENV" "Docker Hub credentials"
   load_dockerhub_env
   unset DOCKERHUB_USERNAME DOCKERHUB_PASSWORD # checked only; read again when seeding
@@ -206,8 +213,10 @@ cpk_pid() {
   [[ -f $f ]] || return 1
   pid="$(cat "$f")"
   [[ $pid =~ ^[0-9]+$ ]] && pid_alive "$pid" || return 1
-  # comm is cut at 15 characters: "cloud-provider-".
-  [[ $(ps -o comm= -p "$pid") == cloud-provider-* ]] || return 1
+  # comm is cut at 15 characters: "cloud-provider-". On macOS it is the full path.
+  local comm
+  comm="$(ps -o comm= -p "$pid")"
+  [[ ${comm##*/} == cloud-provider-* ]] || return 1
   echo "$pid"
 }
 
@@ -336,7 +345,7 @@ apply_terraform() {
   guard
   export TF_IN_AUTOMATION=1
   terraform -chdir="$tf" init -input=false -lockfile=readonly >/dev/null
-  timeout "$T_TERRAFORM" terraform -chdir="$tf" apply -input=false -auto-approve -var-file="$W/e2e.tfvars"
+  timeout_run "$T_TERRAFORM" terraform -chdir="$tf" apply -input=false -auto-approve -var-file="$W/e2e.tfvars"
 }
 
 install_flux() {
@@ -490,6 +499,7 @@ cmd_verify() {
   # The tenants check logs in through Keycloak first; the task check then runs
   # as tenant-e2e's admin, on tenant-e2e's own orchestrator.
   tenants_check
+  pmc_check
   task_check
   log "verify: PASS"
 }
@@ -679,6 +689,7 @@ cmd_tenants() {
   guard
   load_api
   tenants_check
+  pmc_check
   log "tenants: PASS"
 }
 
@@ -689,7 +700,14 @@ cmd_down() {
   log "teardown"
   local pid
   if pid="$(cpk_pid)"; then
-    "${CPK_SUDO[@]}" kill "$pid"
+    if ((${#CPK_SUDO[@]})); then
+      # Root's process: the cached credentials may have expired since `up`. A failed
+      # stop must not abort the teardown below.
+      sudo -v || true
+      sudo -n kill "$pid" || warn "could not stop cloud-provider-kind (pid $pid); stop it with: sudo kill $pid"
+    else
+      kill "$pid"
+    fi
     for _ in 1 2 3 4 5 6 7 8 9 10; do pid_alive "$pid" || break; sleep 1; done
     info "stopped cloud-provider-kind (pid $pid)"
   fi
@@ -708,7 +726,8 @@ cmd_down() {
   if [[ -n $lbs ]]; then
     # shellcheck disable=SC2086 # one id per word
     docker rm -f $lbs >/dev/null
-    info "removed load-balancer containers: $(wc -w <<<"$lbs")"
+    # tr: BSD wc pads its count with spaces.
+    info "removed load-balancer containers: $(wc -w <<<"$lbs" | tr -d ' ')"
   fi
 
   if [[ -e $W || -L $W ]]; then

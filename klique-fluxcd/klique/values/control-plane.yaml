@@ -106,6 +106,26 @@ platformManagementServer:
     # Logging out of the PMC also ends the IdP session.
     - name: CLEARML__platform_server__services__login__sso__oauth_client__keycloak__idp_logout
       value: "true"
+  # The server is a platform-wide management API, so only its two callers may
+  # reach it (the chart fails closed: no peers, no traffic). Peers are
+  # podSelector-only, so they mean "this namespace" (klique), where both run.
+  # OWNERSHIP: this `from` list is owned by this file in its entirety. A new
+  # caller of the server is one more entry here; nothing else lists callers.
+  networkPolicy:
+    enabled: true
+    ingress:
+      from:
+        # The PMC's proxy. This label is the chart's <releaseName>-proxy, so it
+        # follows releaseName platform-management-center in
+        # ../helmrelease-platform-management-center.yaml.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: platform-management-center-proxy
+        # The tenant reconciler's Jobs (their PM_URL), labelled in
+        # ../../tenant-reconciler/job.yaml.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tenant-reconciler
 
 # The MCP server component is enabled by default and needs no values here: it
 # derives its apiserver address and credentials from this release, and the
