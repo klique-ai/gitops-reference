@@ -1,4 +1,5 @@
-# The certificate the app, api and files Ingresses terminate TLS with.
+# The certificate the app, api, files and Platform Management Center Ingresses
+# terminate TLS with.
 # Terraform owns it because TLS is platform: which CA signs Klique is a
 # decision about the cluster, not about a release. The tenants' gateway
 # certificates are NOT here: each tenant folder in GitOps creates its own
@@ -9,7 +10,7 @@ locals {
   certificates = {
     app = {
       name      = var.tls.app_secret_name
-      dns_names = [local.hosts.app, local.hosts.api, local.hosts.files]
+      dns_names = [local.hosts.app, local.hosts.api, local.hosts.files, local.hosts.pmc]
     }
   }
 }

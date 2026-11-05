@@ -1,0 +1,43 @@
+{
+  "realm": "klique-pmc",
+  "displayName": "kind e2e: Platform Management Center admins",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "users": [
+    {
+      "username": "pmc-admin",
+      "enabled": true,
+      "email": "pmc-admin@example.com",
+      "emailVerified": true,
+      "firstName": "E2E",
+      "lastName": "Platform Admin",
+      "credentials": [
+        { "type": "password", "value": "${E2E_PW_PMC_ADMIN}", "temporary": false }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "klique-pmc",
+      "name": "Klique Platform Management Center",
+      "protocol": "openid-connect",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${E2E_OIDC_SECRET_PMC}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "https://pmc.${E2E_DOMAIN}/callback_keycloak",
+        "https://pmc.${E2E_DOMAIN}/callback_klique-pmc"
+      ],
+      "attributes": {"post.logout.redirect.uris": "https://pmc.${E2E_DOMAIN}/login"},
+      "webOrigins": ["+"]
+    }
+  ]
+}

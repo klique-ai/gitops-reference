@@ -9,6 +9,7 @@ output "urls" {
     app      = "https://${local.hosts.app}"
     api      = "https://${local.hosts.api}"
     files    = "https://${local.hosts.files}"
+    pmc      = "https://${local.hosts.pmc}"
     sessions = "https://<tenant>.${local.hosts.sessions}"
   }
 }

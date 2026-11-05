@@ -18,6 +18,7 @@ commit.
 | release | chart | namespace | what it is |
 |---|---|---|---|
 | `control-plane` | control-plane | `klique` | apiserver, web UI, fileserver, MongoDB, Elasticsearch, Valkey, MCP server |
+| `platform-management-center` | platform-management-center | `klique` | the Platform Management Center UI at `https://pmc.<domain>`, and a proxy to the control plane's Platform Management server |
 | `<tenant>-orchestrator` | orchestrator | the tenant's | the k8s glue: runs that tenant's tasks as pods in its namespace and registers its queues |
 | `<tenant>-gateway` | gateway | the tenant's | routes that tenant's interactive sessions and running apps, at `https://<tenant>.<sessions host>` |
 
@@ -30,7 +31,10 @@ for this, with tenant login on: each tenant signs in at
 `https://<app host>/login/<tenant>`. The fixed admin login is unchanged, but
 the default company it signs in to has no orchestrator: tasks run in tenants.
 
-Deliberately not included: the Platform Management Center UI, monitoring,
+The Platform Management Center UI reaches that server through its own proxy,
+inside the cluster; only the UI has an ingress.
+
+Deliberately not included: monitoring,
 provisioning ClearML applications from git. All can be added later; none are
 needed for a working control plane.
 
@@ -95,6 +99,7 @@ own paths, see the placeholder table below:
 | `klique/registry/dockerhub` | `username`, `password` | pulling the Klique charts and images |
 | `klique/apiserver` | `key`, `secret` | the apiserver's own service credential pair |
 | | `admin_user`, `admin_password` | the fixed admin login for the web UI |
+| `klique/platform-management/sso` | `clientId`, `clientSecret`, `baseUrl`, `authorizeUrl`, `tokenUrl` | the Platform Management Center's own OIDC login, for platform admins: NOT a tenant's IdP. See [`klique/externalsecret-pmc-sso.yaml`](klique/externalsecret-pmc-sso.yaml); without it the PMC has no way to log in |
 | `klique/tenants/<tenant>/sso` | one per secret the tenant's `tenant.json` refers to | that tenant's IdP secrets (client secrets, SAML private keys); see [tenants/](tenants/README.md#secrets) |
 | `klique/tenants/tenant-example/sso` | `oidcClientSecret` (any dummy value) | the example tenant, reconciled like any other until you delete its folder |
 
@@ -120,7 +125,7 @@ to set here:
 
 | placeholder | meaning |
 |---|---|
-| `klique/registry/dockerhub`, `klique/apiserver` | paths in YOUR secret backend, if you use different ones |
+| `klique/registry/dockerhub`, `klique/apiserver`, `klique/platform-management/sso` | paths in YOUR secret backend, if you use different ones |
 | `klique/tenants/<tenant>/sso` | the same, but keep the shape `<a>/<b>/<tenant>/<c>`: the build writes the tenant name into the third segment |
 | `tenants/tenant-example/` | the example tenant: copy it for your own tenants, then delete it |
 | `spec.chart.spec.version` in each HelmRelease | the version range a release tracks (the per-tenant ones in `tenant-reconciler/helmrelease-*.yaml`) |

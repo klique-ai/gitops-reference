@@ -126,8 +126,9 @@ wait_exists() { # <timeout-seconds> <kubectl get args...>
 check_private_file() { # <path> <what it is>
   local f=$1 what=$2 mode owner
   [[ -f $f ]] || die "$what not found at $f (see tests/kind-e2e/README.md, 'Credentials')"
-  mode="$(stat -c '%a' "$f")"
-  owner="$(stat -c '%u' "$f")"
+  # GNU stat (-c) on Linux, BSD stat (-f) on macOS.
+  mode="$(stat -c '%a' "$f" 2>/dev/null || stat -f '%Lp' "$f")"
+  owner="$(stat -c '%u' "$f" 2>/dev/null || stat -f '%u' "$f")"
   [[ $owner == "$(id -u)" ]] || die "$f must be owned by you"
   [[ $mode == 600 || $mode == 400 ]] || die "$f has mode $mode; run: chmod 600 $f"
 }

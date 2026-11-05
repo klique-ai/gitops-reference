@@ -22,6 +22,7 @@ issued with your license.
 | `control-plane` | once | apiserver, web UI, fileserver, MongoDB, Elasticsearch, Valkey, MCP server |
 | `orchestrator` | per tenant | the k8s glue: runs the tenant's tasks as pods in its namespace and registers its queues |
 | `gateway` | per tenant | routes the tenant's interactive sessions and running apps, at `<tenant>.<sessions host>` |
+| `platform-management-center` | once | the Platform Management Center UI, at `pmc.<domain>`, and its proxy to the Platform Management server in `control-plane` |
 
 Tenants come from git too: each folder under an example's `tenants/` is one
 Klique tenant, created and kept in line with its folder, with its own identity
@@ -30,8 +31,7 @@ orchestrator and gateway in its own namespace. There is no shared
 orchestrator or gateway. See
 [`klique-fluxcd/tenants/`](klique-fluxcd/tenants/README.md).
 
-Deliberately out of scope everywhere: the Platform Management Center UI,
-monitoring, provisioning ClearML applications from git. All can be added
+Deliberately out of scope everywhere: monitoring, provisioning ClearML applications from git. All can be added
 later; none are needed for a working control plane.
 
 ## Examples

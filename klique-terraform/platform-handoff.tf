@@ -32,6 +32,7 @@ locals {
     app_host            = local.hosts.app
     api_host            = local.hosts.api
     files_host          = local.hosts.files
+    pmc_host            = local.hosts.pmc
     ingress_class       = var.ingress.class_name
     ingress_annotations = local.ingress_annotations
     trust_ca_pem        = local.trust_ca_pem
@@ -56,6 +57,9 @@ resource "kubernetes_config_map_v1" "klique_platform" {
     }))
     "orchestrator.yaml" = templatefile("${path.module}/klique-values/orchestrator.yaml", local.common_values)
     "gateway.yaml"      = templatefile("${path.module}/klique-values/gateway.yaml", local.common_values)
+    "platform-management-center.yaml" = templatefile("${path.module}/klique-values/platform-management-center.yaml", merge(local.common_values, {
+      tls_secret = var.tls.app_secret_name
+    }))
 
     # Partner overrides from var.klique_values, read by each HelmRelease AFTER
     # the git values file: tfvars win over git, credentials win over both.
@@ -63,6 +67,9 @@ resource "kubernetes_config_map_v1" "klique_platform" {
     "control-plane-overrides.yaml" = var.klique_values.control_plane != "" ? var.klique_values.control_plane : "{}"
     "orchestrator-overrides.yaml"  = var.klique_values.orchestrator != "" ? var.klique_values.orchestrator : "{}"
     "gateway-overrides.yaml"       = var.klique_values.gateway != "" ? var.klique_values.gateway : "{}"
+    "platform-management-center-overrides.yaml" = (
+      var.klique_values.platform_management_center != "" ? var.klique_values.platform_management_center : "{}"
+    )
 
     # Plain scalars, for consumers that are not Helm charts.
     "domain"        = local.domain
@@ -72,6 +79,7 @@ resource "kubernetes_config_map_v1" "klique_platform" {
     # Jobs, which log each tenant's login and SSO callback URLs.
     "app_url" = "https://${local.hosts.app}"
     "api_url" = "https://${local.hosts.api}"
+    "pmc_url" = "https://${local.hosts.pmc}"
   }
 
   lifecycle {

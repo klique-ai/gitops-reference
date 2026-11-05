@@ -1,0 +1,51 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: platform-management-center
+  namespace: klique
+spec:
+  # The UI and its proxy only: the Platform Management server it talks to runs
+  # in the control-plane release (platformManagementServer). Same namespace as
+  # the control plane, so the proxy reaches that server's Service directly and
+  # the klique-dockerhub pull secret is already here.
+  releaseName: platform-management-center
+  interval: 10m
+  timeout: 10m
+  dependsOn:
+    - name: control-plane
+
+  chart:
+    spec:
+      chart: platform-management-center
+      # Same policy as control-plane: newest 1.x, upgraded on publish. Pin an
+      # exact version to hold one. Check what exists:
+      #   crane ls index.docker.io/kliqueai/platform-management-center
+      version: "1.x.x"
+      sourceRef:
+        kind: HelmRepository
+        name: klique
+      interval: 30m
+
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+
+  valuesFrom:
+    # 1. Cluster-specific keys (hostname, IngressClass, TLS) from klique-terraform.
+    - kind: ConfigMap
+      name: klique-platform
+      valuesKey: platform-management-center.yaml
+
+    # 2. Functional configuration — values/platform-management-center.yaml.
+    - kind: ConfigMap
+      name: klique-values-platform-management-center
+      valuesKey: values.yaml
+
+    # 3. Partner overrides from tfvars (klique_values.platform_management_center).
+    - kind: ConfigMap
+      name: klique-platform
+      valuesKey: platform-management-center-overrides.yaml
+      optional: true

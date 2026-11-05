@@ -32,7 +32,7 @@ that, the Flux repo only decides which Klique versions run.
 | `ingress.tf` | Traefik, IngressClass `traefik`, http→https redirect, no upload read timeout | `ingress.controller = "existing"` |
 | `cert-manager.tf` | cert-manager with its CRDs | `cert_manager.install = false` |
 | `issuers.tf` | the ClusterIssuer the certificates come from — see [TLS](#tls) | `tls.mode = "issuer"` |
-| `certificates.tf` | `klique-tls` (app, api, files). Each tenant's gateway certificate is created by the tenant folder in GitOps | — |
+| `certificates.tf` | `klique-tls` (app, api, files, pmc). Each tenant's gateway certificate is created by the tenant folder in GitOps | — |
 | `external-secrets.tf` | External Secrets Operator | `external_secrets.install = false` |
 | `secret-store.tf` | SecretStore `klique-secrets`, which every ExternalSecret reads from | leave `secret_store.provider_yaml` empty |
 | `platform-handoff.tf` | the `klique` namespace, the `klique-platform` ConfigMap and the `klique-platform-vars` ConfigMap | — |
@@ -352,7 +352,7 @@ if Terraform should write the CA Secret itself.
 | output | |
 |---|---|
 | `domain` | the domain every hostname sits under |
-| `urls` | app, api, files, and the sessions pattern `https://<tenant>.sessions.<domain>` |
+| `urls` | app, api, files, pmc, and the sessions pattern `https://<tenant>.sessions.<domain>` |
 | `ingress_lb_address` | where the hostnames must resolve (custom DNS) |
 | `ca_certificate_pem` | the private root to trust; empty for a public CA |
 | `secret_store` | whether SecretStore `klique-secrets` was created |

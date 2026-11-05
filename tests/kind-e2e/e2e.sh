@@ -191,13 +191,21 @@ create_cluster() {
   k label node "$CLUSTER-control-plane" node.kubernetes.io/exclude-from-external-load-balancers- >/dev/null 2>&1 || true
 }
 
+# On macOS cloud-provider-kind must run as root (it wires LoadBalancer IPs
+# through to the host, which Docker Desktop's VM hides); on Linux it must not.
+CPK_SUDO=()
+[[ $(uname -s) == Darwin ]] && CPK_SUDO=(sudo)
+
+# kill -0 fails with EPERM on a root-owned process, so test liveness with ps.
+pid_alive() { ps -p "$1" >/dev/null 2>&1; }
+
 # Prints the pid of the cloud-provider-kind this harness started, if that pid
 # is still alive AND still cloud-provider-kind (pids get reused).
 cpk_pid() {
   local f="$W/cloud-provider-kind.pid" pid
   [[ -f $f ]] || return 1
   pid="$(cat "$f")"
-  [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null || return 1
+  [[ $pid =~ ^[0-9]+$ ]] && pid_alive "$pid" || return 1
   # comm is cut at 15 characters: "cloud-provider-".
   [[ $(ps -o comm= -p "$pid") == cloud-provider-* ]] || return 1
   echo "$pid"
@@ -214,12 +222,23 @@ start_cloud_provider_kind() {
   [[ -z $others ]] || warn "cloud-provider-kind also serves LoadBalancers of your other kind clusters: $others"
   # Only LoadBalancer Services: no Gateway API CRDs or default IngressClass of
   # its own, so the cluster looks like the plain one the quickstart expects.
-  nohup cloud-provider-kind --enable-default-ingress=false --gateway-channel=disabled \
-    >"$W/cloud-provider-kind.log" 2>&1 &
-  pid=$!
+  local cpk
+  cpk="$(command -v cloud-provider-kind)" # absolute: sudo resets PATH
+  if ((${#CPK_SUDO[@]})); then
+    info "macOS: cloud-provider-kind needs root, sudo may ask for your password"
+    sudo -v || die "cloud-provider-kind needs sudo on macOS"
+    # Background it inside the root shell so $! is cloud-provider-kind itself,
+    # not sudo; the log stays in $W (root-owned, world-readable).
+    pid="$(sudo -n sh -c 'nohup "$1" --enable-default-ingress=false --gateway-channel=disabled >"$2" 2>&1 & echo $!' \
+      sh "$cpk" "$W/cloud-provider-kind.log")"
+  else
+    nohup "$cpk" --enable-default-ingress=false --gateway-channel=disabled \
+      >"$W/cloud-provider-kind.log" 2>&1 &
+    pid=$!
+  fi
   echo "$pid" >"$W/cloud-provider-kind.pid"
   sleep 2
-  kill -0 "$pid" 2>/dev/null || die "cloud-provider-kind exited; see $W/cloud-provider-kind.log"
+  pid_alive "$pid" || die "cloud-provider-kind exited; see $W/cloud-provider-kind.log"
   info "pid $pid, log $W/cloud-provider-kind.log"
 }
 
@@ -670,8 +689,8 @@ cmd_down() {
   log "teardown"
   local pid
   if pid="$(cpk_pid)"; then
-    kill "$pid"
-    for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+    "${CPK_SUDO[@]}" kill "$pid"
+    for _ in 1 2 3 4 5 6 7 8 9 10; do pid_alive "$pid" || break; sleep 1; done
     info "stopped cloud-provider-kind (pid $pid)"
   fi
 

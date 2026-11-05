@@ -27,6 +27,7 @@ T_PULL_SECRET_SECONDS="${T_PULL_SECRET_SECONDS:-600}"
 # Generated once per cluster, then read back (a second `up` must not change
 # them under a running Keycloak). Values go to OpenBao on stdin.
 seed_sso_secrets() {
+  seed_pmc_secrets
   if bao kv get -mount=kv kind-e2e/keycloak >/dev/null 2>&1; then
     info "SSO secrets already seeded"
     return
@@ -49,6 +50,33 @@ seed_sso_secrets() {
 }
 
 kc_secret() { bao kv get -mount=kv -field="$1" kind-e2e/keycloak; }
+
+# The Platform Management Center's realm (klique-pmc): its admin's password and
+# its OIDC client secret. A path of its own, seeded on its own, so a cluster
+# seeded before the PMC existed gets them too.
+seed_pmc_secrets() {
+  if bao kv get -mount=kv kind-e2e/keycloak-pmc >/dev/null 2>&1; then
+    return
+  fi
+  P="$(rand 12)" S="$(rand 24)" jq -n '{pw_pmc_admin: env.P, oidc_secret_pmc: env.S}' |
+    bao kv put -mount=kv kind-e2e/keycloak-pmc - >/dev/null
+  info "seeded kv/kind-e2e/keycloak-pmc"
+}
+
+pmc_secret() { bao kv get -mount=kv -field="$1" kind-e2e/keycloak-pmc; }
+
+# What externalsecret-pmc-sso.yaml reads. Written once the domain is known
+# (after Terraform). The browser-facing URLs are public; the token URL is
+# in-cluster http, like the tenants' tokenEndpoint, so the Platform Management
+# server never has to trust the private CA.
+seed_pmc_sso_entry() { # <domain>
+  local realm="https://keycloak.$1/realms/klique-pmc"
+  S="$(pmc_secret oidc_secret_pmc)" B="$realm/" A="$realm/protocol/openid-connect/auth" \
+    T="http://keycloak.$KC_NS.svc:8080/realms/klique-pmc/protocol/openid-connect/token" \
+    jq -n '{clientId: "klique-pmc", clientSecret: env.S, baseUrl: env.B, authorizeUrl: env.A, tokenUrl: env.T}' |
+    bao kv put -mount=kv klique/platform-management/sso - >/dev/null
+  info "wrote kv/klique/platform-management/sso (realm klique-pmc)"
+}
 
 # --- Keycloak -----------------------------------------------------------------
 
@@ -80,9 +108,13 @@ setup_keycloak() {
     printf 'E2E_PW_TENANT_E2E_B_USER=%s\n' "$(kc_secret pw_tenant_e2e_b_user)"
     printf 'E2E_OIDC_SECRET_TENANT_E2E=%s\n' "$(kc_secret oidc_secret_tenant_e2e)"
     printf 'E2E_OIDC_SECRET_TENANT_E2E_B=%s\n' "$(kc_secret oidc_secret_tenant_e2e_b)"
+    printf 'E2E_PW_PMC_ADMIN=%s\n' "$(pmc_secret pw_pmc_admin)"
+    printf 'E2E_OIDC_SECRET_PMC=%s\n' "$(pmc_secret oidc_secret_pmc)"
   } | k -n "$KC_NS" create secret generic keycloak-env --from-env-file=/dev/stdin >/dev/null
+  seed_pmc_sso_entry "$domain"
   k -n "$KC_NS" create configmap keycloak-realms \
     --from-file="$HERE/keycloak/realm-tenant-e2e.json" --from-file="$HERE/keycloak/realm-tenant-e2e-b.json" \
+    --from-file="$HERE/keycloak/realm-klique-pmc.json" \
     --dry-run=client -o yaml | k apply -f - >/dev/null
   sed "s/__DOMAIN__/$domain/g" "$HERE/keycloak/keycloak.yaml" | k apply -f - >/dev/null
   k -n "$KC_NS" rollout status deploy/keycloak --timeout="$T_BASE"

@@ -10,8 +10,11 @@ resources:
   - externalsecret-dockerhub.yaml
   - externalsecret-apiserver.yaml
   - externalsecret-users.yaml
+  - externalsecret-pmc-sso.yaml
   - helmrepository.yaml
   - helmrelease-control-plane.yaml
+  # The Platform Management Center UI; its server runs in control-plane.
+  - helmrelease-platform-management-center.yaml
   # The pull secret, copied into every tenant namespace (each tenant runs its
   # own orchestrator and gateway, see ../tenant-reconciler/).
   - secretstore-tenants.yaml
@@ -24,7 +27,7 @@ resources:
 # and referenced from the HelmReleases' valuesFrom. Plain files on purpose: they
 # can be diffed, linted and `helm template -f`'d on their own.
 #
-# control-plane: the content-hash suffix is KEPT. A hashed name changes only
+# control-plane, platform-management-center: the content-hash suffix is KEPT. A hashed name changes only
 # when the file's content changes, so the HelmRelease's valuesFrom reference
 # changes with it and helm-controller reconciles on the event instead of
 # waiting out the interval. valuesfrom-nameref.yaml is the wiring that makes
@@ -43,6 +46,13 @@ configMapGenerator:
     options:
       labels:
         klique.clearml.ai/values: control-plane
+
+  - name: klique-values-platform-management-center
+    files:
+      - values.yaml=./values/platform-management-center.yaml
+    options:
+      labels:
+        klique.clearml.ai/values: platform-management-center
 
   - name: klique-values-orchestrator
     files:

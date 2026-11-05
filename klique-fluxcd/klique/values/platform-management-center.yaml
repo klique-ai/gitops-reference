@@ -1,0 +1,21 @@
+# Functional values for the platform-management-center release. The ingress
+# (hostname, IngressClass, TLS) comes from klique-platform, rendered by
+# klique-terraform: see helmrelease-platform-management-center.yaml.
+
+# The same ESO-materialised pull secret as the control plane, instead of the
+# credential the chart would otherwise generate from (empty) values.
+imageCredentials:
+  existingImagePullSecrets:
+    - name: klique-dockerhub
+
+proxy:
+  upstream:
+    # The control plane's Platform Management server, in-cluster. The name is
+    # <releaseName>-<chartName> of the control-plane release (releaseName
+    # klique), the same Service the tenant reconciler Jobs call.
+    url: http://klique-control-plane-platform-management-server.klique.svc.cluster.local:5210
+
+  # Resolve the upstream per request, not once at startup: on a first install
+  # the proxy can start before that Service resolves, and without a resolver it
+  # crashloops. FQDN, because nginx's resolver ignores the pod's search domains.
+  resolver: kube-dns.kube-system.svc.cluster.local

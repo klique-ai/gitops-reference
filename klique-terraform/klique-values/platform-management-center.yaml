@@ -1,0 +1,15 @@
+# klique-platform / platform-management-center.yaml — rendered by
+# klique-terraform (platform-handoff.tf). Do not edit in the cluster: change
+# the tfvars and re-apply. Owns the cluster-specific keys of the Platform
+# Management Center release; functional config stays in the GitOps repo's
+# values/platform-management-center.yaml.
+
+# The UI is the only public part. Its proxy reaches the Platform Management
+# server in-cluster, so the server keeps no ingress of its own.
+webserver:
+  ingress:
+    enabled: true
+    ingressClassName: ${ingress_class}
+    hostName: ${pmc_host}
+    tlsSecretName: ${tls_secret}
+    annotations: ${ingress_annotations}

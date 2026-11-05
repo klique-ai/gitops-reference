@@ -129,6 +129,7 @@ variable "dns" {
       api      = optional(string, "api")
       files    = optional(string, "files")
       sessions = optional(string, "sessions")
+      pmc      = optional(string, "pmc")
     }), {})
   })
   default = {}
@@ -322,7 +323,7 @@ variable "secret_store_credentials" {
 variable "klique_values" {
   description = <<-EOT
     Per-chart Helm values from tfvars, as YAML strings: control_plane,
-    orchestrator, gateway. Written to klique-platform as
+    orchestrator, gateway, platform_management_center. Written to klique-platform as
     <chart>-overrides.yaml and read by each HelmRelease AFTER the git values
     file — so a key here wins over the same key in git (maps merge, lists
     are replaced). Credentials still win over both.
@@ -334,12 +335,17 @@ variable "klique_values" {
     control_plane = optional(string, "")
     orchestrator  = optional(string, "")
     gateway       = optional(string, "")
+
+    platform_management_center = optional(string, "")
   })
   default = {}
 
   validation {
     condition = alltrue([
-      for v in [var.klique_values.control_plane, var.klique_values.orchestrator, var.klique_values.gateway] :
+      for v in [
+        var.klique_values.control_plane, var.klique_values.orchestrator, var.klique_values.gateway,
+        var.klique_values.platform_management_center,
+      ] :
       v == "" || can(yamldecode(v))
     ])
     error_message = "Every klique_values entry must be valid YAML."
